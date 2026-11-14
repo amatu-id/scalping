@@ -1316,7 +1316,7 @@ function kirimAnalisis(sym, tf) {
   const now = kini(), hariIni = Math.floor((now + WIB) / HARI);
   const jl = An.jurnal.filter(x => Math.floor((x.t1 + WIB) / HARI) === hariIni);
   kirim({ op: 'analisis', sym, tf, ikut: An !== A0 ? An.tf : null, strategi: An.hasil, sesi: An.sesi, batas: An.batasStat, kebiasaan: KB, memori,
-    jurnal: An.jurnal.slice(-60), uji: (An.ujiSemua || []).slice(-40).map(x => trJadi(An, x, 'uji')),
+    jurnal: An.jurnal.slice(-150), uji: (An.ujiSemua || []).slice(-150).map(x => trJadi(An, x, 'uji')),
     hariIni: { n: jl.length, tp: jl.filter(x => x.pnl > 0).length, pnl: jl.reduce((s, x) => s + x.pnl, 0) },
     rasio: sym === 'XAUUSDm' ? RASIO : null, kontrak: INFO[sym].kontrak, kurva: kurva(An) });
 }

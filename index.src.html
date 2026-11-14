@@ -43,10 +43,21 @@
   </header>
 
   <main class="main" id="main" data-tab="sinyal">
+    <aside class="kiri" id="kiri">
+      <section class="card riwayat" id="c-riwayat">
+        <header class="ch"><h2>Riwayat sinyal</h2>
+          <div class="seg sm" id="rw-src"><button data-r="live">Live</button><button data-r="uji">Uji maju</button></div>
+        </header>
+        <div class="rw-sum" id="rw-sum"></div>
+        <div class="rw-list" id="rw-list"></div>
+      </section>
+    </aside>
+
     <section class="chart-box">
       <div id="chart"></div>
       <div class="legend" id="legend"></div>
       <div class="hitung" id="hitung" data-tip="hitung"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 4 6.5 4 9s-4 4-4 9M17 3c0 5-4 6.5-4 9s4 4 4 9"/></svg><b id="hitung-v">–</b></div>
+      <button class="ke-kanan hidden" id="ke-kanan" data-tip="kanan" aria-label="Kembali ke candle terbaru"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6l5 6-5 6M11 6l5 6-5 6M20 5v14"/></svg><span>Terbaru</span><small></small><i></i></button>
       <div class="muat" id="muat"><i class="spin"></i><span id="muat-t">Memuat riwayat pasar…</span></div>
       <div class="info-tutup hidden" id="tutup"></div>
       <div class="info-kal hidden" id="info-kal"><span id="info-kal-t"></span><button id="info-kal-b">Samakan</button><button class="x" id="info-kal-x" aria-label="Tutup">×</button></div>
@@ -146,14 +157,6 @@
         <div class="st-proj" id="st-proj"></div>
         <div class="st-foot"><span id="st-uji"></span><button class="link" id="st-ulang"><svg><use href="#i-segar"/></svg>Analisis ulang</button></div>
       </section>
-
-      <section class="card riwayat" id="c-riwayat">
-        <header class="ch"><h2>Riwayat sinyal</h2>
-          <div class="seg sm" id="rw-src"><button data-r="live">Live</button><button data-r="uji">Uji maju</button></div>
-        </header>
-        <div class="rw-sum" id="rw-sum"></div>
-        <div class="rw-list" id="rw-list"></div>
-      </section>
     </aside>
   </main>
 </div>
@@ -174,6 +177,7 @@
     <label class="fld"><span>Spread BTCUSDm <small>(USD, lihat selisih Buy−Sell di Exness)</small></span><input id="set-sp-btc" type="number" min="0" step="0.1" inputmode="decimal"></label>
     <label class="fld"><span>Spread XAUUSDm <small>(USD)</small></span><input id="set-sp-xau" type="number" min="0" step="0.01" inputmode="decimal"></label>
     <label class="fld cek"><input id="set-bunyi" type="checkbox"><span>Bunyi saat sinyal muncul / selesai</span></label>
+    <label class="fld cek"><input id="set-kanan" type="checkbox"><span>Chart otomatis kembali ke candle terbaru <small>(setelah 15 detik chart tidak disentuh; tombol R / End)</small></span></label>
     <label class="fld cek"><input id="set-paksa" type="checkbox"><span>Buka sinyal walau uji maju belum terbukti <small>(risiko sendiri; mis. XAU saat data PAXG berbeda dari Exness)</small></span></label>
     <p class="note" id="set-info"></p>
     <p class="note">Spread dipakai sebagai biaya di setiap uji, jadi strategi dipilih ulang bila diubah. Hasil uji masa lalu bukan jaminan hasil berikutnya; ini alat bantu analisis, bukan saran investasi.</p>

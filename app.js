@@ -590,14 +590,55 @@
     CH.piv = (m.piv || []).map(x => ({ t: tl(x.t), p: x.p, tipe: x.tipe, lbl: x.lbl }));
     pasangPenanda();
     // ruang kanan selebar batas waktu posisi, agar alat posisi (entry/TP/SL) terlihat utuh; layar sempit = lebih sedikit candle
-    const sempit = $('chart').clientWidth < 600;
-    // 1m mengikuti sinyal 5m: kotak posisi selebar 24 candle 5m = 120 candle 1m, cukup sebagian terlihat di kanan
-    const kanan = IKUT[P.tf] ? 42 : MAXB[P.tf] + 3;
-    if (!viewSama && n) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - (sempit ? 60 : IKUT[P.tf] ? 140 : 115)), to: n + kanan });
+    if (!viewSama && n) chart.timeScale().setVisibleLogicalRange(rentangAwal());
     else if (kembalikan) { try { chart.timeScale().setVisibleRange(kembalikan); } catch (e) { /* abaikan */ } }
     if (n > 30) $('muat').classList.add('pergi');
     legendaDari(null);
   }
+  // ---------------------------------------------------------------- kembali ke candle terbaru (fit): tombol + otomatis setelah chart tidak disentuh
+  const KANAN = { auto: LS.get('autoKanan', true) !== false, tSentuh: Date.now(), jeda: 15000, anim: 0 };
+  /** tampilan bawaan: ±115 candle (60 di layar sempit) + ruang kanan selebar batas waktu posisi (1m ikut 5m: 42 candle) */
+  function rentangAwal() {
+    const n = CH.bars.length, sempit = $('chart').clientWidth < 600, kanan = IKUT[P.tf] ? 42 : MAXB[P.tf] + 3;
+    return { from: Math.max(0, n - (sempit ? 60 : IKUT[P.tf] ? 140 : 115)), to: n + kanan };
+  }
+  /** geser halus ke ujung kanan dengan lebar bawaan, skala harga kembali otomatis (fit) */
+  function keKanan() {
+    if (!chart || !CH.bars.length) return;
+    KANAN.tSentuh = Date.now();
+    chart.priceScale('right').applyOptions({ autoScale: true });
+    const ts = chart.timeScale(), a = ts.getVisibleLogicalRange(), b = rentangAwal();
+    cancelAnimationFrame(KANAN.anim);
+    if (!a || !GERAK) { ts.setVisibleLogicalRange(b); return; }
+    const t0 = performance.now(), d = 480;
+    const langkah = now => {
+      const f = mudah.keluar((now - t0) / d);
+      ts.setVisibleLogicalRange({ from: a.from + (b.from - a.from) * f, to: a.to + (b.to - a.to) * f });
+      if (f < 1) KANAN.anim = requestAnimationFrame(langkah);
+    };
+    KANAN.anim = requestAnimationFrame(langkah);
+  }
+  /** candle terbaru tidak terlihat utuh, atau skala harga diubah manual */
+  function jauhDariKanan() {
+    if (!chart || !CH.bars.length) return false;
+    const lr = chart.timeScale().getVisibleLogicalRange(), n = CH.bars.length;
+    return !!lr && (lr.to < n - 0.5 || chart.priceScale('right').options().autoScale === false);
+  }
+  function cekKanan() {
+    const el = $('ke-kanan'); if (!el) return;
+    const jauh = jauhDariKanan(), sibuk = ANIM.list.some(a => a.jenis === 'putar');
+    el.classList.toggle('hidden', !jauh);
+    if (!jauh) return;
+    const sisa = KANAN.jeda - (Date.now() - KANAN.tSentuh);
+    if (KANAN.auto && !sibuk && sisa <= 0) { keKanan(); return; }
+    el.style.setProperty('--sisa', KANAN.auto && !sibuk ? Math.max(0, Math.min(1, sisa / KANAN.jeda)).toFixed(3) : '0');
+    setT(el.querySelector('small'), KANAN.auto && !sibuk ? `auto ${Math.ceil(Math.max(0, sisa) / 1000)} dtk` : '');
+  }
+  setInterval(cekKanan, 250);
+  // kursor bergerak / menggeser / zoom di chart = sedang dilihat → hitung mundur otomatis diulang
+  ['pointerdown', 'pointermove', 'wheel', 'touchstart', 'touchmove'].forEach(ev => $('chart').addEventListener(ev, () => { KANAN.tSentuh = Date.now(); }, { passive: true }));
+  $('ke-kanan').addEventListener('click', keKanan);
+
   function berjalan(s) {
     if (!chart || !CH.bars.length || !s.bar || s.bar.t < CH.lastT) return;
     const b = s.bar, t = tl(b.t), bar = { time: t, open: b.o, high: b.h, low: b.l, close: b.c };
@@ -972,13 +1013,22 @@
       el.innerHTML = `<div class="rw-kosong">${live ? 'Belum ada sinyal live di ' + NAMA[sym] + ' ' + (IKUT[P.tf] || P.tf) + '.<br>Sinyal & hasilnya direkam di sini begitu muncul.' : 'Belum ada trade uji maju.'}</div>`;
       return;
     }
-    const rows = list.slice(-80).reverse().map(x => {
-      const rp = keRp(x.pnl, sym), tgl = Math.floor((x.t0 + WIB) / 864e5) !== Math.floor((Date.now() + WIB) / 864e5);
-      const wk = tgl ? new Date(x.t0 + WIB).toISOString().slice(8, 10) + '/' + new Date(x.t0 + WIB).toISOString().slice(5, 7) : jm(x.t0);
-      const ada = (CH.tr && CH.tr.has(x.t0)) || (IKUT[P.tf] && Date.now() - x.t0 < 5 * 864e5);
-      return `<div class="rw${ada ? ' bisa' : ''}" data-t0="${x.t0}" title="${x.side < 0 ? 'SELL' : 'BUY'} ${fh(x.entry)} · TP ${fh(x.tp)} · SL ${fh(x.sl)} · keluar ${jm(x.t1)}${ada ? ' · ketuk untuk putar ulang di chart' : ''}"><span class="w">${wk}</span><span class="d ${x.side < 0 ? 's' : 'b'}">${x.side < 0 ? 'SELL' : 'BUY'}</span>` +
-        `<span class="p">${fh(x.entry)} → ${fh(x.keluar)}</span><span class="h ${x.hasil === 'TP' ? 'tp' : x.hasil === 'SL' ? 'sl' : ''}">${x.hasil}</span><span class="r ${rp >= 0 ? 'up' : 'dn'}">${frp(rp)}</span></div>`;
-    }).join('');
+    // dikelompokkan per tanggal (WIB), terbaru di atas; total per hari dari seluruh daftar
+    const hariKe = t => Math.floor((t + WIB) / 864e5), hariIni = hariKe(Date.now()), perHari = new Map();
+    for (const x of list) { const d = hariKe(x.t0), g = perHari.get(d) || { n: 0, w: 0, s: 0 }; g.n++; g.s += x.pnl; if (x.pnl > 0) g.w++; perHari.set(d, g); }
+    let rows = '', hariLalu = null;
+    const hr = x => sym === 'BTCUSDT' ? nf(0).format(x) : fh(x);   // harga ringkas di kolom sempit
+    for (const x of list.slice(-150).reverse()) {
+      const d = hariKe(x.t0);
+      if (d !== hariLalu) {
+        hariLalu = d; const g = perHari.get(d), tg = new Date(d * 864e5), rpH = keRp(g.s, sym);
+        const nama = d === hariIni ? 'Hari ini' : d === hariIni - 1 ? 'Kemarin' : NHP[tg.getUTCDay()];
+        rows += `<div class="rw-tgl"><b>${nama}, ${tg.getUTCDate()} ${NB[tg.getUTCMonth()]}</b><span>${g.w}/${g.n} untung · <b class="${rpH >= 0 ? 'up' : 'dn'}">${frp(rpH)}</b></span></div>`;
+      }
+      const rp = keRp(x.pnl, sym), ada = (CH.tr && CH.tr.has(x.t0)) || (IKUT[P.tf] && Date.now() - x.t0 < 5 * 864e5);
+      rows += `<div class="rw${ada ? ' bisa' : ''}" data-t0="${x.t0}" title="${x.side < 0 ? 'SELL' : 'BUY'} ${fh(x.entry)} · TP ${fh(x.tp)} · SL ${fh(x.sl)} · keluar ${jm(x.t1)}${x.kode ? ' · ' + x.kode : ''}${ada ? ' · ketuk untuk putar ulang di chart' : ''}"><span class="w">${jm(x.t0)}</span><span class="d ${x.side < 0 ? 's' : 'b'}">${x.side < 0 ? 'SELL' : 'BUY'}</span>` +
+        `<span class="p"><span>${hr(x.entry)}</span><span>→ ${hr(x.keluar)}</span></span><span class="h ${x.hasil === 'TP' ? 'tp' : x.hasil === 'SL' ? 'sl' : ''}">${x.hasil}</span><span class="r ${rp >= 0 ? 'up' : 'dn'}">${frp(rp).replace('Rp ', '')}</span></div>`;   // kolom sempit: tanpa "Rp" (ada di judul tanggal)
+    }
     if (el.innerHTML !== rows) el.innerHTML = rows;
   }
 
@@ -1223,7 +1273,7 @@
   });
 
   function bukaSetelan() {
-    $('set-lot').value = P.lot; $('set-sp-btc').value = P.spread.BTCUSDT; $('set-sp-xau').value = P.spread.XAUUSDm; $('set-bunyi').checked = P.bunyi; $('set-paksa').checked = P.paksa;
+    $('set-lot').value = P.lot; $('set-sp-btc').value = P.spread.BTCUSDT; $('set-sp-xau').value = P.spread.XAUUSDm; $('set-bunyi').checked = P.bunyi; $('set-paksa').checked = P.paksa; $('set-kanan').checked = KANAN.auto;
     $('set-info').textContent = FEED.sumber === 'exness'
       ? `Sumber: feed resmi Exness (Exness Trader API lewat server AMATU, hanya membaca harga). Riwayat candle & tick Bid langsung dari Exness, disimpan di browser ini. Kurs USD/IDR ${nf(0).format(KURS)}.`
       : `Sumber: Binance (BTC = BTCUSDT ÷ USDCUSDT agar dalam USD seperti Exness; XAU = PAXGUSDT × rasio emas). Semua harga ditampilkan sebagai Bid seperti di Exness. Tanpa kalibrasi, selisih ke Exness bisa beberapa dolar. Kurs USD/IDR ${nf(0).format(KURS)}.`;
@@ -1237,7 +1287,7 @@
     const lot = +$('set-lot').value, sb = +$('set-sp-btc').value, sx = +$('set-sp-xau').value;
     if (lot > 0) P.lot = Math.round(lot * 100) / 100;
     if (sb >= 0) P.spread.BTCUSDT = sb; if (sx >= 0) P.spread.XAUUSDm = sx;
-    P.bunyi = $('set-bunyi').checked; aturBunyi(); P.paksa = $('set-paksa').checked; LS.set('paksa', P.paksa);
+    P.bunyi = $('set-bunyi').checked; aturBunyi(); P.paksa = $('set-paksa').checked; LS.set('paksa', P.paksa); KANAN.auto = $('set-kanan').checked; LS.set('autoKanan', KANAN.auto);
     LS.set('lot', P.lot); LS.set('spread', P.spread); LS.set('bunyi', P.bunyi);
     W.postMessage({ op: 'setel', set: { lot: P.lot, spread: P.spread, paksa: P.paksa } });
     pop.classList.add('hidden'); renderStrategi(); renderRiwayat(); renderKeb();
@@ -1251,6 +1301,7 @@
     const k = e.key.toLowerCase();
     if (k === '1') pilih(P.sym, '1m'); else if (k === '5') pilih(P.sym, '5m');
     else if (k === 'b') pilih('BTCUSDT', P.tf); else if (k === 'g' || k === 'x') pilih('XAUUSDm', P.tf);
+    else if (k === 'r' || e.key === 'End') keKanan();
   });
 
   // keterangan (hover / ketuk)
@@ -1263,6 +1314,7 @@
       if (FEED.sumber === 'exness') return `<b>${NAMA[sym]} Bid ${h && ok(h.p) ? fh(h.p) : ''}</b><br>Feed resmi Exness (Trader API): Bid langsung dari server Exness, sama dengan terminal Anda.`;
       return `<b>${NAMA[sym]} Bid ${h && ok(h.p) ? fh(h.p) : ''}</b><br>${sym === 'BTCUSDT' ? 'Binance BTCUSDT ÷ USDCUSDT (USD)' : 'PAXGUSDT × rasio emas'}, ditampilkan sebagai Bid (tengah − spread/2).<br>${teksKal(sym)}${FEED.exn && FEED.exn.galat ? '<br>' + alasanExn(FEED.exn.galat) : ''}`;
     },
+    kanan: () => `<b>Kembali ke candle terbaru</b> — chart digeser ke ujung kanan dengan lebar bawaan dan skala harga otomatis (fit).<br>${KANAN.auto ? 'Otomatis setelah 15 detik chart tidak disentuh (bisa dimatikan di Setelan).' : 'Kembali otomatis: mati (Setelan).'} Tombol keyboard: R / End.`,
     hitung: () => 'Sisa waktu candle chart ini.' + (IKUT[P.tf] ? ` Sinyal dari candle ${IKUT[P.tf]} — lihat jam pasir di kartu Sinyal untuk waktu konfirmasinya.` : ' Pola candle baru sah saat candle tutup.'),
     gelombang: () => 'Batas Atas/Bawah = puncak & lembah gelombang terakhir. Satu gelombang terkonfirmasi bila harga berbalik minimal sekian ATR dari titik ekstremnya; ukuran ini dipilih dari uji riwayat.',
     struktur: () => 'Struktur gelombang: HH & HL (puncak dan lembah makin tinggi) = naik; LH & LL = turun; campuran = datar.',

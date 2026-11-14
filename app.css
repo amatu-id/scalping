@@ -3,7 +3,7 @@
   --tx: #e6e9ef; --tx2: #b7bfcc; --mu: #8790a1; --fa: #5c6577;
   --up: #22c39a; --dn: #f2545b; --am: #f5b041; --bl: #5b8cff;
   --upa: rgba(34, 195, 154, .14); --dna: rgba(242, 84, 91, .14); --ama: rgba(245, 176, 65, .14); --bla: rgba(91, 140, 255, .14);
-  --r: 12px; --hdr: 48px; --panel: clamp(330px, 24vw, 400px);
+  --r: 12px; --hdr: 48px; --panel: clamp(330px, 24vw, 400px); --kiri: clamp(270px, 20vw, 360px);
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -79,8 +79,11 @@ input { font: inherit; color: inherit; }
 .baru button { height: 28px; padding: 0 12px; border-radius: 8px; background: var(--bla); color: #cfe0ff; font-weight: 600; font-size: 12px; }
 
 /* ------------------------------------------------ layout */
-.main { display: grid; min-height: 0; grid-template-columns: minmax(0, 1fr) var(--panel); grid-template-rows: minmax(0, 1fr) auto;
-  grid-template-areas: "chart panel" "keb panel"; }
+.main { display: grid; min-height: 0; grid-template-columns: var(--kiri) minmax(0, 1fr) var(--panel); grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: "kiri chart panel" "kiri keb panel"; }
+/* riwayat sinyal: kolom kiri setinggi layar */
+.kiri { grid-area: kiri; display: flex; flex-direction: column; padding: 8px; border-right: 1px solid var(--line); background: var(--bg2); min-height: 0; min-width: 0; }
+.kiri > .riwayat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .chart-box { grid-area: chart; position: relative; min-height: 0; min-width: 0; }
 #chart { position: absolute; inset: 0; }
 .keb { grid-area: keb; border-top: 1px solid var(--line); padding: 8px 14px 10px; background: var(--bg2); min-width: 0; }
@@ -235,16 +238,23 @@ input { font: inherit; color: inherit; }
 .link.jalan svg { animation: putar 1s linear infinite; }
 
 /* riwayat */
-.kanan > .riwayat { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 110px; }
+/* grup per tanggal di riwayat */
+.rw-tgl { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 0 4px; background: var(--card); border-bottom: 1px solid var(--line2); font-size: 11px; color: var(--mu); }
+.rw-tgl b { color: var(--tx); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.rw-tgl > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rw-tgl span b { font-size: 11px; }
+.rw-list .rw-tgl:first-child { padding-top: 2px; }
 .rw-sum { font-size: 11.5px; color: var(--mu); margin: -2px 0 6px; }
 .rw-sum b { color: var(--tx2); }
 .rw-list { flex: 1; overflow-y: auto; min-height: 0; margin: 0 -6px; padding: 0 6px; scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
-.rw { display: grid; grid-template-columns: 40px 38px minmax(0, 1fr) 34px auto; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 11.5px; }
+.rw { display: grid; grid-template-columns: 36px 31px minmax(0, 1fr) 30px auto; gap: 5px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 11.5px; }
 .rw:last-child { border-bottom: 0; }
 .rw .w { color: var(--mu); }
 .rw .d { font-weight: 700; font-size: 10.5px; letter-spacing: .03em; }
 .rw .d.s { color: var(--dn); } .rw .d.b { color: var(--up); }
-.rw .p { color: var(--tx2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw .p { color: var(--tx2); display: flex; flex-wrap: wrap; column-gap: 4px; line-height: 1.25; min-width: 0; }
+.rw .p > span { white-space: nowrap; }
+.rw .p > span + span { color: var(--mu); }
 .rw .h { font-size: 10px; font-weight: 700; text-align: center; padding: 1px 0; border-radius: 4px; background: var(--card2); color: var(--mu); }
 .rw .h.tp { background: var(--upa); color: var(--up); } .rw .h.sl { background: var(--dna); color: var(--dn); }
 .rw .r { font-weight: 600; text-align: right; white-space: nowrap; }
@@ -300,6 +310,9 @@ input { font: inherit; color: inherit; }
   .grow { display: none; }
   .live { margin-left: auto; }
   .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 48fr) auto minmax(0, 52fr); grid-template-areas: "chart" "tabs" "panel"; }
+  .kiri { display: none; grid-area: panel; border-right: 0; padding: 6px 8px 8px; }
+  .main[data-tab=riwayat] .kiri { display: flex; }
+  .main[data-tab=riwayat] .kanan { display: none; }
   .tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-top: 1px solid var(--line); background: var(--bg2); overflow-x: auto; scrollbar-width: none; }
   .tabs button { flex: 1; height: 30px; border-radius: 8px; color: var(--mu); font-weight: 600; font-size: 12.5px; white-space: nowrap; padding: 0 8px; }
   .tabs button.on { background: var(--card2); color: var(--tx); }
@@ -344,8 +357,8 @@ input { font: inherit; color: inherit; }
 .rw.bisa { cursor: pointer; border-radius: 6px; transition: background .15s; }
 .rw.bisa:hover { background: var(--card2); }
 .rw.bisa:active { background: #1d2533; }
-.rw.bisa .w::after { content: ' ▶'; font-size: 8px; color: var(--fa); vertical-align: 1px; }
-.rw.bisa:hover .w::after { color: var(--am); }
+.rw.bisa { position: relative; }
+.rw.bisa:hover::before { content: '▶'; position: absolute; left: -7px; top: 50%; transform: translateY(-50%); font-size: 7px; color: var(--am); }
 
 /* ------------------------------------------------ v7: winrate 70%+, kebiasaan multi-skala */
 .st-mk { margin-top: 7px; font-size: 11.5px; color: var(--tx2); line-height: 1.5; }
@@ -360,3 +373,19 @@ input { font: inherit; color: inherit; }
 .keb-ax span { white-space: nowrap; overflow: hidden; }
 .fld.cek small { display: block; }
 @media (max-width: 860px) { .keb-h .seg { order: 3; } .keb-h #keb-sub { flex: 1 1 100%; order: 4; } }
+
+/* tombol kembali ke candle terbaru (fit) */
+.ke-kanan { position: absolute; right: 82px; bottom: 38px; z-index: 3; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px 0 9px; border-radius: 15px;
+  background: rgba(20, 26, 36, .95); border: 1px solid var(--line2); color: var(--tx); font-size: 12px; font-weight: 600; box-shadow: 0 6px 18px rgba(0, 0, 0, .4); overflow: hidden;
+  animation: kananMuncul .25s ease-out; }
+.ke-kanan:hover { border-color: rgba(245, 176, 65, .7); }
+.ke-kanan svg { width: 15px; height: 15px; fill: none; stroke: var(--am); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ke-kanan small { color: var(--mu); font-size: 10.5px; font-weight: 500; }
+.ke-kanan small:empty { display: none; }
+.ke-kanan i { position: absolute; left: 0; bottom: 0; height: 2px; width: calc(var(--sisa, 0) * 100%); background: var(--am); transition: width .25s linear; }
+@keyframes kananMuncul { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 860px) { .ke-kanan { right: 70px; bottom: 34px; } }
+/* tombol gaya tidak pecah dua baris; bila sempit seg pindah ke baris berikut */
+.strategi .ch { flex-wrap: wrap; row-gap: 6px; }
+#gaya button { white-space: nowrap; }
+@media (max-width: 1400px) and (min-width: 861px) { #gaya button { padding: 0 6px; font-size: 11px; } }

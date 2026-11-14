@@ -65,19 +65,165 @@
   const LW = window.LightweightCharts;
   let chart = null, cs = null, vs = null, su = null, sb = null;
   const garis = {};
-  const CH = { sym: '', tf: '', bars: [], vols: [], uu: [], ll: [], lastT: 0, uji: [], jurnal: [], piv: [], tr: new Map(), s: null };
+  const CH = { sym: '', tf: '', bars: [], vols: [], uu: [], ll: [], lastT: 0, uji: [], jurnal: [], piv: [], tr: new Map(), s: null, pos: null };
 
-  /** Primitive: gelombang (zigzag puncak/lembah + label HH/HL/LH/LL), garis & zona batas gelombang, zona TP/SL posisi. */
+  // ---------------------------------------------------------------- alat posisi (seperti Long/Short Position di TradingView)
+  // Kotak dimulai di penutupan candle sinyal (harga entry) dan selebar batas waktu posisi (MAXB candle, sama dengan mesin.js):
+  // zona hijau = arah take profit, zona merah = arah stop loss, garis putih = entry, tepi kanan = posisi ditutup paksa.
+  const MAXB = { '1m': 30, '5m': 24 };
+  const HIJAU = '34,195,154', MERAH = '242,84,91', AMBER = '245,176,65';
+  const PIL = { h: 19, pad: 7, atas: 34 };                    // tinggi label, padding, batas atas (di bawah legenda & jam pasir)
+  const fontPil = b => `${b ? 700 : 600} 11px Inter, system-ui, sans-serif`;
+  /** indeks candle terakhir dengan waktu ≤ t (waktu chart), −1 bila sebelum candle pertama */
+  function idxWaktu(t) {
+    const B = CH.bars; let lo = 0, hi = B.length - 1, r = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (B[m].time <= t) { r = m; lo = m + 1; } else hi = m - 1; }
+    return r;
+  }
+  const fdj = d => fd(d, d >= 100 ? 0 : 2);
+  const persen = (d, e) => nf(2).format(d / e * 100) + '%';
+  /** isi label: tiap bagian punya beberapa varian, dari panjang ke pendek; tataLabel memilih yang muat */
+  function teksPosisi(p) {
+    const sym = P.sym, jual = p.side < 0, sisi = jual ? 'SELL' : 'BUY', wS = jual ? C.dn : C.up, T = '#dfe5ee', M = '#8f98aa';
+    const tpD = Math.abs(p.tp - p.entry), slD = Math.abs(p.sl - p.entry), rr = slD ? tpD / slD : 0, sp = P.spread[sym] || 0;
+    const rpTp = frp(keRp(tpD - sp, sym)), rpSl = frp(-keRp(slD + sp, sym)), rrT = `R:R 1 : ${fx(rr, 1)}`;
+    let e;
+    if (p.jenis === 'aktif') {
+      const pl = p.pl || 0, wP = pl >= 0 ? C.up : C.dn, plU = (pl >= 0 ? '+' : '−') + '$' + nf(2).format(Math.abs(pl)), plR = frp(keRp(pl, sym));
+      e = [[{ t: sisi, c: wS, b: 1 }, { t: ` berjalan · entry ${fh(p.entry)} · `, c: T }, { t: `P/L ${plU} · ${plR}`, c: wP, b: 1 }],
+        [{ t: sisi, c: wS, b: 1 }, { t: ` ${fh(p.entry)} · `, c: T }, { t: plR, c: wP, b: 1 }], [{ t: sisi + ' ', c: wS, b: 1 }, { t: plR, c: wP, b: 1 }]];
+    } else if (p.jenis === 'riwayat') {
+      const wP = p.pnl > 0 ? C.up : C.dn, rp = frp(keRp(p.pnl, sym)), asal = p.sumber === 'live' ? ' · live' : ' · uji';
+      e = [[{ t: sisi, c: wS, b: 1 }, { t: ` ${jm(p.t0)} · ${fh(p.entry)} → ${p.hasil} ${fh(p.keluar)} · `, c: T }, { t: rp, c: wP, b: 1 }, { t: asal, c: M }],
+        [{ t: sisi, c: wS, b: 1 }, { t: ` ${p.hasil} · `, c: T }, { t: rp, c: wP, b: 1 }]];
+    } else {
+      const tag = p.jenis === 'calon' ? ['CALON ', C.am] : p.jenis === 'siaga' ? ['SIAGA ', C.am] : ['RENCANA ', M], kira = p.jenis === 'calon' ? '' : '≈ ';
+      e = [[{ t: tag[0], c: tag[1], b: 1 }, { t: sisi, c: wS, b: 1 }, { t: ` · entry ${kira}${fh(p.entry)} · ${rrT}`, c: T }],
+        [{ t: tag[0], c: tag[1], b: 1 }, { t: sisi, c: wS, b: 1 }, { t: ` ${kira}${fh(p.entry)}`, c: T }], [{ t: sisi, c: wS, b: 1 }, { t: ` ${kira}${fh(p.entry)}`, c: T }]];
+    }
+    return {
+      e,
+      tp: [`${fh(p.tp)} · ${fdj(tpD)} (${persen(tpD, p.entry)}) · ${rpTp}`, `${fh(p.tp)} · ${rpTp}`, fh(p.tp)],
+      sl: [`${fh(p.sl)} · ${fdj(slD)} (${persen(slD, p.entry)}) · ${rpSl}`, `${fh(p.sl)} · ${rpSl}`, fh(p.sl)],
+    };
+  }
+  /** tata letak label (px CSS): entry di garis entry, TP & SL di luar tepi zonanya, tidak saling tumpuk, dan tidak
+   *  menutupi candle yang sedang berjalan (k.cur = [kiri, kanan] candle itu). ukur(seg) = lebar teks di konteks gambar. */
+  function tataLabel(k, W, H, isi, jenis, ukur) {
+    const a = Math.max(k.x1, 4), b = Math.min(k.x2, W - 4);
+    if (b - a < 2 || W < 80) return null;
+    const tegas = jenis === 'aktif' || jenis === 'calon', putus = jenis === 'siaga' || jenis === 'rencana';
+    const lebar = v => v.reduce((s, x) => s + ukur(x), 0) + 2 * PIL.pad;
+    const varian = { e: isi.e };
+    for (const [kunci, warna, kata, gelap] of [['tp', HIJAU, 'TP ', '#04150f'], ['sl', MERAH, 'SL ', '#200609']]) {
+      const tc = tegas ? gelap : `rgb(${warna})`;
+      varian[kunci] = isi[kunci].map(t => [{ t: kata, c: tc, b: 1 }, { t, c: tc }]);
+    }
+    // daerah label: kanan candle berjalan (ruang kosong ke depan) bila cukup; kalau sempit, menempel di kiri candle
+    // berjalan (menutup candle lama, bukan yang sedang terbentuk); kalau tetap sempit, seluruh lebar chart
+    let r0 = 4, r1 = W - 4, maks = Math.min(W - 8, Math.max(b - a + 120, 270)), rapatKanan = false;
+    if (k.cur) {
+      const kanan = [Math.max(a, k.cur[1] + 3), W - 4], kiri = [4, Math.min(b, k.cur[0] - 3)];
+      const perlu = i => Math.max(...['e', 'tp', 'sl'].map(x => lebar(varian[x][Math.min(i, varian[x].length - 1)])));
+      const lK = kanan[1] - kanan[0], lI = kiri[1] - kiri[0], pendek = perlu(9);
+      if (lK >= perlu(1) || (lK >= pendek && lK >= lI)) [r0, r1] = kanan;
+      else if (lI >= pendek) { [r0, r1] = kiri; rapatKanan = true; }
+      maks = r1 - r0;
+    }
+    const pilih = vs => { for (const v of vs) { const w = lebar(v); if (w <= maks) return { seg: v, w }; } const v = vs[vs.length - 1]; return { seg: v, w: lebar(v) }; };
+    const c0 = Math.max(a, r0), c1 = Math.min(b, r1), cx = c1 > c0 ? (c0 + c1) / 2 : (r0 + r1) / 2;
+    const xDi = w => Math.max(4, rapatKanan ? r1 - w : Math.max(r0, Math.min(r1 - w, cx - w / 2)));
+    const yDi = y => Math.max(PIL.atas, Math.min(H - PIL.h / 2 - 3, y));
+    const out = [];
+    const e = pilih(varian.e);
+    out.push({ ...e, x: xDi(e.w), y: yDi(k.yE), bg: 'rgba(15,20,28,0.95)', bd: 'rgba(170,179,194,0.45)', putus });
+    for (const [kunci, y, warna] of [['tp', k.yT, HIJAU], ['sl', k.yS, MERAH]]) {
+      const arah = Math.sign(y - k.yE) || (kunci === 'tp' ? -1 : 1);
+      let yy = y + arah * (3 + PIL.h / 2);
+      if (Math.abs(yy - k.yE) < PIL.h + 4) yy = k.yE + arah * (PIL.h + 4);
+      const v = pilih(varian[kunci]);
+      out.push({ ...v, x: xDi(v.w), y: yDi(yy), bg: tegas ? `rgba(${warna},0.95)` : 'rgba(10,13,18,0.92)', bd: tegas ? null : `rgba(${warna},0.85)`, putus });
+    }
+    return out;
+  }
+  function kotakRect(r) { return { x: r.x, y: r.y - PIL.h / 2, w: r.w, h: PIL.h }; }
+  const tumpuk = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  function isiKotak(ctx, k, hr, vr, a) {
+    const x1 = Math.round(k.x1 * hr), x2 = Math.round(k.x2 * hr), yE = Math.round(k.yE * vr), yT = Math.round(k.yT * vr), yS = Math.round(k.yS * vr);
+    if (x2 <= x1) return;
+    ctx.fillStyle = `rgba(${HIJAU},${a})`; ctx.fillRect(x1, Math.min(yE, yT), x2 - x1, Math.abs(yT - yE));
+    ctx.fillStyle = `rgba(${MERAH},${a})`; ctx.fillRect(x1, Math.min(yE, yS), x2 - x1, Math.abs(yS - yE));
+  }
+  function garisH(ctx, x1, x2, y) { ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke(); }
+  function garisPosisi(ctx, k, hr, vr) {
+    const j = k.p.jenis, rencana = j === 'siaga' || j === 'rencana';
+    const x1 = Math.round(k.x1 * hr), x2 = Math.round(k.x2 * hr), yE = Math.round(k.yE * vr) + .5, yT = Math.round(k.yT * vr) + .5, yS = Math.round(k.yS * vr) + .5;
+    if (x2 <= x1) return;
+    const lw = Math.max(1, Math.round(hr)), putus = [5 * hr, 4 * hr];
+    ctx.lineWidth = lw;
+    if (rencana) {        // rencana: garis luar putus-putus per zona
+      ctx.setLineDash(putus);
+      ctx.strokeStyle = `rgba(${HIJAU},0.8)`; ctx.strokeRect(x1 + .5, Math.min(yE, yT), x2 - x1 - 1, Math.abs(yT - yE));
+      ctx.strokeStyle = `rgba(${MERAH},0.8)`; ctx.strokeRect(x1 + .5, Math.min(yE, yS), x2 - x1 - 1, Math.abs(yS - yE));
+    } else {
+      ctx.strokeStyle = `rgba(${HIJAU},0.95)`; garisH(ctx, x1, x2, yT);
+      ctx.strokeStyle = `rgba(${MERAH},0.95)`; garisH(ctx, x1, x2, yS);
+      ctx.setLineDash([3 * hr, 3 * hr]); ctx.strokeStyle = `rgba(${AMBER},0.6)`;   // tepi kanan = batas waktu posisi
+      ctx.beginPath(); ctx.moveTo(x2 - .5, Math.min(yT, yS)); ctx.lineTo(x2 - .5, Math.max(yT, yS)); ctx.stroke();
+    }
+    ctx.setLineDash(rencana ? putus : []);
+    ctx.lineWidth = Math.max(1, Math.round(1.6 * hr)); ctx.strokeStyle = 'rgba(223,229,238,0.92)'; garisH(ctx, x1, x2, yE);
+    ctx.setLineDash([]);
+    if (k.xN != null && k.yN != null) {   // posisi berjalan: entry → harga kini
+      const c = k.p.side * (k.p.harga - k.p.entry) >= 0 ? HIJAU : MERAH, xN = k.xN * hr, yN = k.yN * vr;
+      ctx.lineWidth = lw; ctx.setLineDash([4 * hr, 3 * hr]); ctx.strokeStyle = `rgba(${c},0.95)`;
+      ctx.beginPath(); ctx.moveTo(x1, yE); ctx.lineTo(xN, yN); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = `rgb(${c})`; ctx.beginPath(); ctx.arc(xN, yN, 3.2 * hr, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = '#dfe5ee'; ctx.beginPath(); ctx.arc(x1, yE, 3 * hr, 0, Math.PI * 2); ctx.fill();   // titik entry
+  }
+  function garisTrade(ctx, k, hr, vr) {
+    const x = k.p, s = k.sorot, x1 = Math.round(k.x1 * hr), x2 = Math.round(k.x2 * hr), yE = Math.round(k.yE * vr) + .5;
+    ctx.lineWidth = Math.max(1, Math.round(hr));
+    if (s) {
+      ctx.strokeStyle = `rgba(${HIJAU},0.9)`; garisH(ctx, x1, x2, Math.round(k.yT * vr) + .5);
+      ctx.strokeStyle = `rgba(${MERAH},0.9)`; garisH(ctx, x1, x2, Math.round(k.yS * vr) + .5);
+    }
+    ctx.strokeStyle = `rgba(223,229,238,${s ? 0.9 : 0.35})`; garisH(ctx, x1, x2, yE);
+    if (k.xX == null || k.yX == null) return;
+    const c = x.pnl > 0 ? HIJAU : MERAH;   // entry → keluar
+    ctx.setLineDash([3 * hr, 3 * hr]); ctx.strokeStyle = `rgba(${c},${s ? 0.95 : 0.55})`;
+    ctx.beginPath(); ctx.moveTo(x1, yE); ctx.lineTo(k.xX * hr, k.yX * vr); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = `rgba(${c},${s ? 1 : 0.8})`; ctx.beginPath(); ctx.arc(k.xX * hr, k.yX * vr, (s ? 3.2 : 2.4) * hr, 0, Math.PI * 2); ctx.fill();
+  }
+  function bulat(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function gambarLabel(ctx, lay) {
+    ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    for (const q of lay) {
+      bulat(ctx, q.x, q.y - PIL.h / 2, q.w, PIL.h, 4);
+      ctx.fillStyle = q.bg; ctx.fill();
+      if (q.bd) { ctx.lineWidth = 1; ctx.strokeStyle = q.bd; if (q.putus) ctx.setLineDash([3, 2]); ctx.stroke(); ctx.setLineDash([]); }
+      let x = q.x + PIL.pad;
+      for (const s of q.seg) { ctx.font = fontPil(s.b); ctx.fillStyle = s.c; ctx.fillText(s.t, x, q.y + 0.5); x += ctx.measureText(s.t).width; }
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  /** Primitive: gelombang (zigzag puncak/lembah + label HH/HL/LH/LL), garis & zona batas gelombang, alat posisi (entry/TP/SL) + trade riwayat. */
   class Zona {
     constructor() {
-      this.d = null; this.g = null; this.ch = null; this.se = null; this.req = null; const z = this;
+      this.d = null; this.g = null; this.ch = null; this.se = null; this.req = null; this.sorot = null; const z = this;
       this.views = [{ zOrder: () => 'bottom', renderer: () => ({ draw: t => z.gambarBawah(t) }) }, { zOrder: () => 'top', renderer: () => ({ draw: t => z.gambarAtas(t) }) }];
     }
     attached(p) { this.ch = p.chart; this.se = p.series; this.req = p.requestUpdate; }
     detached() { this.ch = this.se = this.req = null; }
     paneViews() { return this.views; }
     updateAllViews() { this.hitung(); }
-    set(d) { this.d = d; if (this.req) this.req(); }
+    set(d) { this.d = d; this.minta(); }
+    minta() { if (this.req) this.req(); }
     hitung() {
       const d = this.d; this.g = null;
       if (!d || !this.ch || !this.se) return;
@@ -94,12 +240,57 @@
         g.piv = d.gel.piv.map(x => { const q = xy(x.t, x.p); return q && { x: q[0], y: q[1], tipe: x.tipe, lbl: x.lbl }; }).filter(Boolean);
         g.ujung = d.gel.ujung ? xy(d.gel.ujung.t, d.gel.ujung.p) : null;
       }
-      if (d.trade) { const x = d.trade; g.tx = ts.timeToCoordinate(x.t); g.yE = se.priceToCoordinate(x.entry); g.yT = se.priceToCoordinate(x.tp); g.yS = se.priceToCoordinate(x.sl); g.calon = x.calon; }
+      const B = CH.bars; if (!B.length) { this.g = g; return; }
+      const W = ts.width(), H = Math.max(0, $('chart').clientHeight - ts.height());
+      // indeks logis → x. LWC 4.1 mengembalikan 0 untuk indeks pecahan, jadi interpolasi dari dua indeks bulat
+      const xL = l => {
+        const a = Math.floor(l), xa = ts.logicalToCoordinate(a); if (xa == null || l === a) return xa;
+        const xb = ts.logicalToCoordinate(a + 1); return xb == null ? null : xa + (l - a) * (xb - xa);
+      };
+      // kotak posisi: dari penutupan candle i0 (entry) sampai penutupan candle i1
+      const kotak = (p, i0, i1) => {
+        const k = { p, x1: xL(i0 + 0.5), x2: xL(i1 + 0.5), yE: se.priceToCoordinate(p.entry), yT: se.priceToCoordinate(p.tp), yS: se.priceToCoordinate(p.sl) };
+        return k.x1 == null || k.x2 == null || k.yE == null || k.yT == null || k.yS == null ? null : k;
+      };
+      if (d.pos) {          // posisi berjalan / calon / rencana
+        const p = d.pos, i0 = idxWaktu(tl(p.t0)), k = i0 >= 0 ? kotak(p, i0, i0 + p.maxb) : null;
+        if (k) {
+          const iK = idxWaktu(tl(p.tBar));        // candle berjalan: label tidak boleh menutupinya
+          if (iK >= 0) { const c0 = xL(iK - 0.5), c1 = xL(iK + 0.5); if (c0 != null && c1 != null) k.cur = [c0, c1]; }
+          if (p.jenis === 'aktif' && ok(p.harga)) {
+            const f = p.barMs ? Math.max(0, Math.min(1, (p.t - p.tBar) / p.barMs)) : 1;
+            k.xN = xL(Math.min(i0 + p.maxb + 0.5, Math.max(i0 + 0.5, iK - 0.5 + f))); k.yN = se.priceToCoordinate(p.harga);
+          }
+          g.pos = k;
+        }
+      }
+      const lr = ts.getVisibleLogicalRange();   // trade riwayat yang terlihat (kotak tipis; label saat disorot)
+      if (lr && CH.tr && CH.tr.size) {
+        g.riw = [];
+        for (const x of CH.tr.values()) {
+          const i0 = idxWaktu(tl(x.t0)); if (i0 < 0 || B[i0].time !== tl(x.t0)) continue;
+          const i1 = Math.max(i0 + 1, idxWaktu(tl(x.t1 - 1)));
+          if (i1 + 1 < lr.from || i0 > lr.to + 1) continue;
+          const k = kotak(x, i0, i1); if (!k) continue;
+          k.xX = xL(i1); k.yX = se.priceToCoordinate(x.keluar); k.sorot = x === this.sorot;
+          g.riw.push(k);
+        }
+      }
+      g.W = W; g.H = H;
       this.g = g;
+    }
+    /** tata label sekali per gambar, diukur dengan konteks kanvas chart sendiri (kanvas lain mengukur angka berbeda) */
+    tata(ctx) {
+      const g = this.g; if (!g || g.tertata) return; g.tertata = true;
+      const ukur = s => { ctx.font = fontPil(s.b); return ctx.measureText(s.t).width; };
+      if (g.pos) g.pos.lay = tataLabel(g.pos, g.W, g.H, teksPosisi(g.pos.p), g.pos.p.jenis, ukur);
+      for (const k of g.riw || []) if (k.sorot) k.lay = tataLabel(k, g.W, g.H, teksPosisi({ ...k.p, jenis: 'riwayat' }), 'riwayat', ukur);
     }
     gambarBawah(target) {
       const g = this.g; if (!g) return;
       target.useBitmapCoordinateSpace(({ context: ctx, bitmapSize, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
+        this.tata(ctx);
+        const pil = [...(g.pos && g.pos.lay || []), ...((g.riw || []).find(k => k.lay) || { lay: [] }).lay].map(kotakRect);
         const Wd = bitmapSize.width;
         for (const v of g.lv || []) {          // zona sentuh pola + garis batas gelombang
           if (v.y == null) continue;
@@ -109,36 +300,53 @@
           ctx.beginPath(); ctx.moveTo(x1, y + .5); ctx.lineTo(Wd, y + .5); ctx.stroke();
           ctx.font = `600 ${Math.round(10.5 * vr)}px Inter, system-ui, sans-serif`; ctx.fillStyle = `rgba(${v.warna},0.95)`;
           const teks = Wd / hr < 560 ? v.teks.replace('BATAS ', '') : v.teks, lebarT = ctx.measureText(teks).width;
-          ctx.fillText(teks, Math.max(x1 + 34 * hr, Wd - lebarT - (Wd / hr < 560 ? 12 : 64) * hr), v.atas ? y - 5 * vr : y + 14 * vr);
+          const tx = Math.max(x1 + 34 * hr, Wd - lebarT - (Wd / hr < 560 ? 12 : 64) * hr);
+          // nama batas tidak boleh tertutup label alat posisi: coba sisi lain garis, kalau tetap bentrok disembunyikan
+          const coba = v.atas ? [y - 5 * vr, y + 14 * vr] : [y + 14 * vr, y - 5 * vr];
+          const ty = coba.find(b => !pil.some(r => tumpuk(r, { x: tx / hr, y: b / vr - 10, w: lebarT / hr, h: 12 })));
+          if (ty != null) ctx.fillText(teks, tx, ty);
         }
-        if (g.yE != null && g.yT != null && g.yS != null) {
-          const x = g.tx == null ? Math.round(Wd * 0.7) : Math.max(0, Math.round(g.tx * hr)), yE = Math.round(g.yE * vr), yT = Math.round(g.yT * vr), yS = Math.round(g.yS * vr);
-          const a = g.calon ? 0.09 : 0.16;
-          ctx.fillStyle = `rgba(34,195,154,${a})`; ctx.fillRect(x, Math.min(yE, yT), Wd - x, Math.abs(yT - yE));
-          ctx.fillStyle = `rgba(242,84,91,${a})`; ctx.fillRect(x, Math.min(yE, yS), Wd - x, Math.abs(yS - yE));
+        for (const k of g.riw || []) isiKotak(ctx, k, hr, vr, k.sorot ? 0.15 : 0.06);
+        if (g.pos) {
+          const k = g.pos;
+          isiKotak(ctx, k, hr, vr, { aktif: 0.17, calon: 0.14, siaga: 0.1, rencana: 0.07 }[k.p.jenis] || 0.1);
+          if (k.xN != null && k.yN != null) {   // area untung/rugi yang sudah berjalan
+            const x1 = Math.round(k.x1 * hr), xN = Math.round(k.xN * hr), yE = Math.round(k.yE * vr), yN = Math.round(k.yN * vr);
+            ctx.fillStyle = `rgba(${k.p.side * (k.p.harga - k.p.entry) >= 0 ? HIJAU : MERAH},0.24)`;
+            if (xN > x1) ctx.fillRect(x1, Math.min(yE, yN), xN - x1, Math.abs(yN - yE));
+          }
         }
       });
     }
     gambarAtas(target) {
-      const g = this.g; if (!g || !g.piv || !g.piv.length) return;
+      const g = this.g; if (!g) return;
       target.useBitmapCoordinateSpace(({ context: ctx, horizontalPixelRatio: hr, verticalPixelRatio: vr }) => {
-        const P_ = g.piv;
-        ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(1, 1.4 * hr); ctx.strokeStyle = 'rgba(214,222,235,0.55)';
-        ctx.beginPath(); ctx.moveTo(P_[0].x * hr, P_[0].y * vr);
-        for (let i = 1; i < P_.length; i++) ctx.lineTo(P_[i].x * hr, P_[i].y * vr);
-        ctx.stroke();
-        if (g.ujung) {   // kaki gelombang yang masih berjalan
-          const a = P_[P_.length - 1]; ctx.setLineDash([4 * hr, 4 * hr]); ctx.strokeStyle = 'rgba(245,176,65,0.75)';
-          ctx.beginPath(); ctx.moveTo(a.x * hr, a.y * vr); ctx.lineTo(g.ujung[0] * hr, g.ujung[1] * vr); ctx.stroke(); ctx.setLineDash([]);
+        this.tata(ctx);
+        const P_ = g.piv || [];
+        if (P_.length) {
+          ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(1, 1.4 * hr); ctx.strokeStyle = 'rgba(214,222,235,0.55)';
+          ctx.beginPath(); ctx.moveTo(P_[0].x * hr, P_[0].y * vr);
+          for (let i = 1; i < P_.length; i++) ctx.lineTo(P_[i].x * hr, P_[i].y * vr);
+          ctx.stroke();
+          if (g.ujung) {   // kaki gelombang yang masih berjalan
+            const a = P_[P_.length - 1]; ctx.setLineDash([4 * hr, 4 * hr]); ctx.strokeStyle = 'rgba(245,176,65,0.75)';
+            ctx.beginPath(); ctx.moveTo(a.x * hr, a.y * vr); ctx.lineTo(g.ujung[0] * hr, g.ujung[1] * vr); ctx.stroke(); ctx.setLineDash([]);
+          }
+          ctx.font = `700 ${Math.round(9.5 * vr)}px Inter, system-ui, sans-serif`; ctx.textAlign = 'center';
+          for (const q of P_) {
+            const naik = q.lbl === 'HH' || q.lbl === 'HL', turun = q.lbl === 'LH' || q.lbl === 'LL';
+            ctx.fillStyle = naik ? 'rgba(34,195,154,0.95)' : turun ? 'rgba(242,84,91,0.95)' : 'rgba(170,179,194,0.9)';
+            ctx.beginPath(); ctx.arc(q.x * hr, q.y * vr, 2.4 * hr, 0, Math.PI * 2); ctx.fill();
+            ctx.fillText(q.lbl, q.x * hr, q.tipe > 0 ? q.y * vr - 7 * vr : q.y * vr + 15 * vr);
+          }
+          ctx.textAlign = 'start';
         }
-        ctx.font = `700 ${Math.round(9.5 * vr)}px Inter, system-ui, sans-serif`; ctx.textAlign = 'center';
-        for (const q of P_) {
-          const naik = q.lbl === 'HH' || q.lbl === 'HL', turun = q.lbl === 'LH' || q.lbl === 'LL';
-          ctx.fillStyle = naik ? 'rgba(34,195,154,0.95)' : turun ? 'rgba(242,84,91,0.95)' : 'rgba(170,179,194,0.9)';
-          ctx.beginPath(); ctx.arc(q.x * hr, q.y * vr, 2.4 * hr, 0, Math.PI * 2); ctx.fill();
-          ctx.fillText(q.lbl, q.x * hr, q.tipe > 0 ? q.y * vr - 7 * vr : q.y * vr + 15 * vr);
-        }
-        ctx.textAlign = 'start';
+        for (const k of g.riw || []) garisTrade(ctx, k, hr, vr);
+        if (g.pos) garisPosisi(ctx, g.pos, hr, vr);
+      });
+      target.useMediaCoordinateSpace(({ context: ctx }) => {   // label di ruang px CSS agar teks tajam
+        for (const k of g.riw || []) if (k.lay) gambarLabel(ctx, k.lay);
+        if (g.pos && g.pos.lay) gambarLabel(ctx, g.pos.lay);
       });
     }
   }
@@ -164,12 +372,12 @@
     sb = chart.addLineSeries(garisRiwayat('rgba(34,195,154,0.30)'));
     cs = chart.addCandlestickSeries({ upColor: C.up, downColor: C.dn, wickUpColor: C.up, wickDownColor: C.dn, borderVisible: false,
       priceLineColor: '#aab3c2', priceLineStyle: 2, priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-      // skala otomatis: candle terlihat + batas & TP/SL saat ini (bila candle terakhir terlihat)
+      // skala otomatis: candle terlihat + batas & alat posisi (entry/TP/SL) saat ini (bila candle terakhir terlihat)
       autoscaleInfoProvider: asli => {
         const r = asli(), s = CH.s; if (!r || !s || !chart) return r;
         const lr = chart.timeScale().getVisibleLogicalRange();
         if (!lr || lr.to < CH.bars.length - 2) return r;
-        const ext = [s.atas, s.bawah]; const t = s.aktif || (s.keadaan === 'KANDIDAT' && s.rencana);
+        const ext = [s.atas, s.bawah]; const t = CH.pos;
         if (t) ext.push(t.tp, t.sl);
         for (const v of ext) if (ok(v)) { r.priceRange.minValue = Math.min(r.priceRange.minValue, v); r.priceRange.maxValue = Math.max(r.priceRange.maxValue, v); }
         return r;
@@ -177,7 +385,8 @@
     cs.attachPrimitive(zona);
     const pl = (color, title, style = 0) => cs.createPriceLine({ price: 0, color, lineWidth: 1, lineStyle: style, lineVisible: false, axisLabelVisible: false, title });
     garis.atas = pl(C.dn, ''); garis.bawah = pl(C.up, '');
-    garis.entry = pl('#aab3c2', 'Entry', 2); garis.tp = pl(C.up, 'TP', 2); garis.sl = pl(C.dn, 'SL', 2);
+    // entry/TP/SL: hanya label harga di sumbu; garis & zonanya digambar alat posisi (Zona)
+    garis.entry = pl('#c9d1dd', ''); garis.tp = pl(C.up, ''); garis.sl = pl(C.dn, '');
     chart.subscribeCrosshairMove(legendaDari);
   }
   const garisLama = {};
@@ -208,7 +417,9 @@
     CH.uji = m.uji || CH.uji; CH.jurnal = m.jurnal || CH.jurnal;
     CH.piv = (m.piv || []).map(x => ({ t: tl(x.t), p: x.p, tipe: x.tipe, lbl: x.lbl }));
     pasangPenanda();
-    if (!viewSama && n) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - (P.tf === '1m' ? 150 : 140)), to: n + 8 });
+    // ruang kanan selebar batas waktu posisi, agar alat posisi (entry/TP/SL) terlihat utuh; layar sempit = lebih sedikit candle
+    const sempit = $('chart').clientWidth < 600;
+    if (!viewSama && n) chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - (sempit ? 60 : P.tf === '1m' ? 125 : 115)), to: n + MAXB[P.tf] + 3 });
     else if (kembalikan) { try { chart.timeScale().setVisibleRange(kembalikan); } catch (e) { /* abaikan */ } }
     if (n > 30) $('muat').classList.add('pergi');
     legendaDari(null);
@@ -254,12 +465,13 @@
   }
   function legendaDari(param) {
     const el = $('legend'); if (!cs) return;
-    let bar = null;
+    let bar = null, tr = null;
     if (param && param.time && param.seriesData) bar = param.seriesData.get(cs);
+    // trade riwayat di bawah kursor (sepanjang entry → keluar): kotaknya disorot + label TP/SL di chart
+    if (param && param.time != null && CH.tr) for (const x of CH.tr.values()) if (tl(x.t0) <= param.time && param.time < tl(x.t1)) { tr = x; break; }
+    if (zona.sorot !== tr) { zona.sorot = tr; zona.minta(); }
     if (!bar) bar = CH.bars[CH.bars.length - 1];
     if (!bar) { el.innerHTML = ''; return; }
-    const tm = (bar.time - 7 * 3600) * 1000;
-    const tr = CH.tr && CH.tr.get(tm);
     const nm = NAMA[P.sym];
     let h = `<span class="t">${nm} · ${P.tf}</span><span class="ohl">O <b>${fh(bar.open)}</b></span><span class="ohl">H <b>${fh(bar.high)}</b></span><span class="ohl">L <b>${fh(bar.low)}</b></span><span>C <b>${fh(bar.close)}</b></span>`;
     if (tr) h += `<span class="tr ${tr.pnl > 0 ? 'w' : 'l'}">${tr.side < 0 ? 'SELL' : 'BUY'} ${fh(tr.entry)} → ${tr.hasil} ${fh(tr.keluar)} · ${frp(keRp(tr.pnl, P.sym))}${tr.sumber === 'live' ? ' · live' : ' · uji'}</span>`;
@@ -328,15 +540,24 @@
     if (!chart) return;
     const adaR = ok(s.atas) && ok(s.bawah);
     aturGaris('atas', s.atas, adaR, false); aturGaris('bawah', s.bawah, adaR, false);
-    let tr = null;
-    if (s.aktif) tr = { t: tl(s.aktif.t0), entry: s.aktif.entry, tp: s.aktif.tp, sl: s.aktif.sl };
-    else if (s.keadaan === 'KANDIDAT' && s.rencana) tr = { t: tl(s.bar.t), entry: s.rencana.entry, tp: s.rencana.tp, sl: s.rencana.sl, calon: true };
-    aturGaris('entry', tr ? tr.entry : 0, !!tr); aturGaris('tp', tr ? tr.tp : 0, !!tr); aturGaris('sl', tr ? tr.sl : 0, !!tr);
+    // alat posisi: posisi berjalan (dari candle sinyal), calon (sah saat candle ini tutup), atau rencana perkiraan di level gelombang
+    let pos = null;
+    const sumber = s.aktif ? ['aktif', s.aktif, s.aktif.t0] : s.keadaan === 'KANDIDAT' && s.rencana ? ['calon', s.rencana]
+      : (s.keadaan === 'SIAGA' || s.keadaan === 'TUNGGU') && s.siaga ? [s.keadaan === 'SIAGA' ? 'siaga' : 'rencana', s.siaga] : null;
+    if (sumber && s.bar) {
+      const x = sumber[1];
+      if (ok(x.entry) && ok(x.tp) && ok(x.sl)) pos = { jenis: sumber[0], side: x.side, entry: x.entry, tp: x.tp, sl: x.sl, pl: x.pl,
+        t0: sumber[2] || s.bar.t, maxb: x.maxb || s.maxb || MAXB[s.tf], harga: s.harga, t: s.t, tBar: s.bar.t, barMs: s.barMs };
+    }
+    CH.pos = pos;
+    // label harga di sumbu hanya untuk posisi berjalan/calon (entry calon = harga kini, labelnya sudah ada)
+    const sumbu = !!pos && (pos.jenis === 'aktif' || pos.jenis === 'calon');
+    aturGaris('entry', sumbu ? pos.entry : 0, sumbu && pos.jenis === 'aktif', false); aturGaris('tp', sumbu ? pos.tp : 0, sumbu, false); aturGaris('sl', sumbu ? pos.sl : 0, sumbu, false);
     const st = s.struktur || {};
     zona.set({
       level: adaR ? { atas: s.atas, bawah: s.bawah, tA: s.tAtas ? tl(s.tAtas) : 0, tB: s.tBawah ? tl(s.tBawah) : 0, zona: s.zona || 0, lblA: st.lblA, lblB: st.lblB } : null,
       gel: { piv: CH.piv || [], ujung: s.gel && ok(s.gel.p) ? { t: tl(s.gel.t), p: s.gel.p } : null },
-      trade: tr,
+      pos,
     });
   }
 
@@ -603,8 +824,8 @@
     P.sym = sym; P.tf = tf; LS.set('sym', sym); LS.set('tf', tf);
     tandaiPilihan();
     Object.assign(A, { strategi: null, jurnal: [], uji: [], hariIni: null, kebiasaan: A.kebiasaan && sym === CH.sym ? A.kebiasaan : null, sesi: null, batas: null, kurva: null });
-    CH.uji = []; CH.jurnal = []; CH.piv = []; CH.s = null; JP.siklus = null;
-    zona.set(null); ['atas', 'bawah', 'entry', 'tp', 'sl'].forEach(k => aturGaris(k, 0, false));
+    CH.uji = []; CH.jurnal = []; CH.piv = []; CH.s = null; CH.pos = null; JP.siklus = null;
+    zona.sorot = null; zona.set(null); ['atas', 'bawah', 'entry', 'tp', 'sl'].forEach(k => aturGaris(k, 0, false));
     renderStrategi(); renderRiwayat();
     W.postMessage({ op: 'lihat', sym, tf });
   }
@@ -800,5 +1021,5 @@
 
   buatChart();
   tandaiPilihan(); aturBunyi(); renderStrategi(); renderRiwayat(); renderKeb();
-  window.SCALP = { P, A, CH, W, chart: () => chart };
+  window.SCALP = { P, A, CH, W, chart: () => chart, zona };
 })();

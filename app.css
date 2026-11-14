@@ -324,3 +324,9 @@ input { font: inherit; color: inherit; }
   .seg button { padding: 0 10px; }
   .s-badge { min-width: 72px; font-size: 14px; }
 }
+
+/* sumber harga di header */
+.live .src { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; padding: 2px 6px; border-radius: 5px; background: var(--card2); color: var(--mu); margin-left: 2px; align-self: center; }
+.live .src.exn { background: var(--upa); color: var(--up); }
+.kal-exn { font-size: 12px; color: var(--tx2); line-height: 1.5; padding: 6px 0 2px; }
+.kal-exn b { color: var(--up); }

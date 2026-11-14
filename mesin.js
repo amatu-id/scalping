@@ -1,6 +1,7 @@
 'use strict';
 /* Amatu Scalping · mesin (Web Worker) · versi %%VERSI%%
- * - Data  : Binance spot publik. BTCUSDm = BTCUSDT ÷ USDCUSDT (Exness memakai USD, bukan USDT) + selisih kalibrasi Exness;
+ * - Data  : FEED RESMI EXNESS (Trader API lewat relay Supabase amatu-exness: candle Bid + tick Bid/Ask) bila sudah dipasang;
+ *           selain itu Binance spot publik. BTCUSDm = BTCUSDT ÷ USDCUSDT (Exness memakai USD, bukan USDT) + selisih kalibrasi Exness;
  *           XAUUSDm = PAXGUSDT × rasio (kalibrasi harga Exness, cadangan spot gold-api.com), candle di luar jam pasar emas dibuang.
  *           Semua harga yang dikirim ke halaman berbasis BID seperti chart & judul tab Exness (tengah − spread/2). REST data-api.binance.vision + WebSocket data-stream.binance.vision.
  * - Rekam : semua candle 1m/5m disimpan di IndexedDB 'amatu-scalping' (hanya di perangkat ini) dan terus bertambah.
@@ -14,11 +15,18 @@ const TF_MS = { '1m': MENIT, '5m': 5 * MENIT };
 const TFS = ['1m', '5m'];
 const SYMS = ['BTCUSDT', 'XAUUSDm'];
 const INFO = {
-  BTCUSDT: { seri: 'BTCUSDT', kontrak: 1, emas: false },
-  XAUUSDm: { seri: 'PAXGUSDT', kontrak: 100, emas: true },
+  BTCUSDT: { seri: 'BTCUSDT', kontrak: 1, emas: false, exn: 'BTCUSDm' },
+  XAUUSDm: { seri: 'PAXGUSDT', kontrak: 100, emas: true, exn: 'XAUUSDm' },
 };
-const SERI = ['BTCUSDT', 'PAXGUSDT'];
-const SYM_DARI = { BTCUSDT: 'BTCUSDT', PAXGUSDT: 'XAUUSDm' };
+let SERI = ['BTCUSDT', 'PAXGUSDT'];
+const SYM_DARI = { BTCUSDT: 'BTCUSDT', PAXGUSDT: 'XAUUSDm', 'X:BTCUSDm': 'BTCUSDT', 'X:XAUUSDm': 'XAUUSDm' };
+/** sumber data: 'binance' (perkiraan) atau 'exness' (feed resmi lewat relay amatu-exness, harga Bid persis) */
+let SUMBER = 'binance';
+const EXN = { edge: '', token: '', ok: false, galat: '', lilin: 1000, spread: {}, wsOk: false };
+function pakaiExness() {
+  INFO.BTCUSDT.seri = 'X:BTCUSDm'; INFO.XAUUSDm.seri = 'X:XAUUSDm';
+  SERI = ['X:BTCUSDm', 'X:XAUUSDm']; SUMBER = 'exness'; ANTRE.maks = 3;
+}
 const SIMPAN = { '1m': [14, 60], '5m': [90, 365] };   // hari diunduh awal, hari maksimum direkam
 const MAXB = { '1m': 30, '5m': 24 };                   // posisi ditutup paksa setelah N candle
 const HZ = { '1m': 15, '5m': 12 };                     // jendela peluang sentuh (candle)
@@ -90,6 +98,7 @@ class Seri {
   constructor(seri, tf) {
     this.seri = seri; this.tf = tf; this.key = seri + '|' + tf; this.ms = TF_MS[tf];
     this.buka = bukaSeri(seri); this.n = 0; this.cap = 0; this.kotor = new Set(); this.versi = 0;   // versi naik bila indeks bergeser
+    this.bukaCek = this.buka || (seri === 'X:XAUUSDm' ? emasBuka : null);   // jam pasar hanya untuk mencari celah data
     this._alloc(4096);
   }
   _alloc(cap) {
@@ -229,10 +238,10 @@ async function hapusSemua() {
 // ------------------------------------------------------------------ jaringan
 class GalatHttp extends Error { constructor(s) { super('HTTP ' + s); this.status = s; } }
 let hostI = 0, hostT = 0;
-async function ambilJson(url, ms = 10000) {
+async function ambilJson(url, ms = 10000, headers) {
   const ac = new AbortController(), tm = setTimeout(() => ac.abort(), ms);
   try {
-    const r = await fetch(url, { signal: ac.signal, cache: 'no-store' });
+    const r = await fetch(url, { signal: ac.signal, cache: 'no-store', headers });
     if (!r.ok) throw new GalatHttp(r.status);
     return await r.json();
   } catch (e) {
@@ -241,6 +250,7 @@ async function ambilJson(url, ms = 10000) {
   } finally { clearTimeout(tm); }
 }
 async function klines(seri, tf, start, limit = 1000, ms = 10000) {
+  if (seri.startsWith('X:')) return lilinExness(seri.slice(2), tf, start, limit, Math.max(ms, 15000));
   if (hostI && Date.now() - hostT > 600000) hostI = 0;
   const i = hostI;
   const q = `symbol=${seri}&interval=${tf}&limit=${limit}` + (start != null ? `&startTime=${Math.floor(start)}` : '');
@@ -253,6 +263,17 @@ async function klines(seri, tf, start, limit = 1000, ms = 10000) {
     STATUS.galat = String(e && e.message || e);
     throw e;
   }
+}
+const isoZ = t => new Date(t).toISOString().replace(/\.\d{3}Z$/, 'Z');
+/** candle Bid resmi Exness lewat relay; start null = N candle terakhir */
+async function lilinExness(sym, tf, start, limit, ms = 15000) {
+  const n = Math.max(1, Math.min(limit, EXN.lilin));
+  const q = start == null ? `from=${isoZ(kini() + TF_MS[tf])}&count=-${n}` : `from=${isoZ(Math.floor(start))}&count=${n}`;
+  try {
+    const r = await ambilJson(`${EXN.edge}/candles?sym=${sym}&tf=${tf === '5m' ? 'M5' : 'M1'}&${q}`, ms, { 'x-amatu': EXN.token });
+    STATUS.rest = Date.now(); STATUS.galat = '';
+    return r.t.map((t, i) => [t, r.o[i], r.h[i], r.l[i], r.c[i], r.v[i]]);
+  } catch (e) { STATUS.galat = 'Exness: ' + String(e && e.message || e); throw e; }
 }
 async function klinesUlang(seri, tf, start, limit = 1000) {
   let e0;
@@ -271,9 +292,9 @@ async function slot(fn) {
 
 /** Lengkapi riwayat S sampai `hari` ke belakang + sampai sekarang (potongan 1000 candle paralel). */
 async function isiRiwayat(S, hari, prog) {
-  const ms = S.ms, now = kini(), mulai = Math.floor((now - hari * HARI) / ms) * ms;
+  const ms = S.ms, now = kini(), mulai = Math.floor((now - hari * HARI) / ms) * ms, per = S.seri.startsWith('X:') ? EXN.lilin : 1000;
   const titik = [];
-  const rentang = (a, b) => { for (let s = a; s <= b; s += 1000 * ms) titik.push(s); };
+  const rentang = (a, b) => { for (let s = a; s <= b; s += per * ms) titik.push(s); };
   const cakup = KV.get('cakup|' + S.key) || Infinity;
   if (!S.n) rentang(mulai, now);
   else {
@@ -281,7 +302,7 @@ async function isiRiwayat(S, hari, prog) {
     rentang(S.akhir, now);
   }
   let beres = 0, galat = null;
-  await Promise.all(titik.map(s => slot(() => klinesUlang(S.seri, S.tf, s)).then(rows => {
+  await Promise.all(titik.map(s => slot(() => klinesUlang(S.seri, S.tf, s, per)).then(rows => {
     S.gabung(rows); beres++;
     if (prog) prog(beres, titik.length);
   }).catch(e => { galat = e; })));
@@ -297,16 +318,17 @@ async function tambalCelah(S) {
     if (b - a <= 1.5 * ms) continue;
     const k = S.key + a;
     if (celahDicoba.has(k)) continue;
-    if (S.buka) { let ada = false; for (let x = a + ms; x < b; x += 5 * MENIT) if (S.buka(x)) { ada = true; break; } if (!ada) continue; }
+    if (S.bukaCek) { let ada = false; for (let x = a + ms; x < b; x += 5 * MENIT) if (S.bukaCek(x)) { ada = true; break; } if (!ada) continue; }
     celahDicoba.add(k); celah.push([a + ms, b]);
   }
+  const per = S.seri.startsWith('X:') ? EXN.lilin : 1000;
   for (const [a, b] of celah) {
     for (let s = a, k = 0; s < b && k < 20; k++) {
-      const rows = await slot(() => klinesUlang(S.seri, S.tf, s)).catch(() => []);
+      const rows = await slot(() => klinesUlang(S.seri, S.tf, s, per)).catch(() => []);
       if (!rows.length) break;
       S.gabung(rows);
       const akhir = rows[rows.length - 1][0];
-      if (akhir >= b || rows.length < 1000) break;
+      if (akhir >= b || rows.length < per) break;
       s = akhir + S.ms;
     }
   }
@@ -343,12 +365,56 @@ function terima(stream, d) {
     for (const tf of TFS) { const S = DATA.get(seri + '|' + tf); if (S) S.tick(t, mid, mid, mid, mid, 0); }
   }
 }
+// ---- feed resmi Exness: tick Bid/Ask lewat WebSocket relay amatu-exness
+let wsX = null, wsXCoba = 0, wsXJadwal = null;
+function sambungExness() {
+  if (typeof WebSocket === 'undefined') return;
+  clearTimeout(wsXJadwal);
+  try { wsX = new WebSocket(EXN.edge.replace(/^http/, 'ws') + `/ws?t=${encodeURIComponent(EXN.token)}&sym=BTCUSDm,XAUUSDm`); } catch (e) { jadwalExness(); return; }
+  const w = wsX;
+  w.onopen = () => { STATUS.ws = true; };
+  w.onmessage = ev => {
+    let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.i) { wsXCoba = 0; EXN.wsOk = true; tickExness(m); }
+    else if (m.galat) STATUS.galat = 'Exness: ' + m.galat;
+    else if (m.tutup && m.tutup.galat) STATUS.galat = 'Exness: ' + m.tutup.galat;
+  };
+  w.onclose = () => { if (wsX === w) { STATUS.ws = false; jadwalExness(); } };
+  w.onerror = () => { try { w.close(); } catch (e) { /* */ } };
+}
+function jadwalExness() { clearTimeout(wsXJadwal); wsXJadwal = setTimeout(sambungExness, Math.min(30000, 600 * 2 ** wsXCoba++)); }
+function tickExness(m) {
+  const sym = m.i === 'BTCUSDm' ? 'BTCUSDT' : m.i === 'XAUUSDm' ? 'XAUUSDm' : null;
+  if (!sym) return;
+  const seri = INFO[sym].seri, b = +m.b, a = +m.a, t = +m.t || kini();
+  if (!(b > 0)) return;
+  STATUS.wsT = Date.now();
+  if (Math.abs(t - Date.now()) < 120000) jamServer(t);
+  for (const tf of TFS) { const S = DATA.get(seri + '|' + tf); if (S) S.tick(t, b, b, b, b, 1); }
+  HARGA[seri] = { p: b, t: Date.now(), bid: b, ask: a };
+  if (a > b) EXN.spread[sym] = EXN.spread[sym] ? EXN.spread[sym] * 0.9 + (a - b) * 0.1 : a - b;
+}
+/** relay siap & login portal sah? (dicek sebelum seri dibuat; gagal → tetap Binance) */
+async function cekExness() {
+  if (!EXN.edge) return false;
+  if (!EXN.token) { EXN.galat = 'BELUM_LOGIN_PORTAL'; return false; }
+  try {
+    const s = await ambilJson(EXN.edge + '/status', 15000);
+    if (!s || !s.ok) { EXN.galat = (s && s.galat) || 'TIDAK_SIAP'; return false; }
+    EXN.lilin = Math.max(10, (s.batas && s.batas.lilin) || 1000);
+    await lilinExness('BTCUSDm', '1m', null, 2);
+    EXN.ok = true; EXN.galat = '';
+    return true;
+  } catch (e) { EXN.galat = String(e && e.message || e).slice(0, 120); return false; }
+}
 let pollJalan = false;
 async function pollRest() {     // dipakai saat WebSocket putus
-  if (pollJalan) return; pollJalan = true;
+  if (pollJalan) return;
+  if (SUMBER === 'exness') { if (Date.now() - (pollRest.t || 0) < 5000) return; pollRest.t = Date.now(); }
+  pollJalan = true;
   try {
-    await Promise.all(SERI.map(async seri => {
-      if (seri === 'PAXGUSDT' && !emasBuka(kini())) return;
+    await Promise.all((SUMBER === 'exness' ? [INFO[LIHAT.sym].seri] : SERI).map(async seri => {
+      if ((seri === 'PAXGUSDT' || seri === 'X:XAUUSDm') && !emasBuka(kini())) return;
       const rows = await klines(seri, '1m', null, 2, 4000);
       for (const tf of TFS) { const S = DATA.get(seri + '|' + tf); if (S) { const r = rows[rows.length - 1]; S.tick(r[0], r[1], r[2], r[3], r[4], 0); } }
       HARGA[seri] = { p: rows[rows.length - 1][4], t: Date.now() };
@@ -395,6 +461,7 @@ async function ambilUsdc() {
 }
 /** Samakan dengan Exness: bid = harga Bid yang terlihat di terminal Exness saat ini. */
 function kalibrasi(sym, bid, reset) {
+  if (SUMBER === 'exness') return { galat: 'Feed resmi Exness aktif — harga sudah sama, tidak perlu disamakan.' };
   if (reset) { KAL[sym] = null; return { kal: null }; }
   bid = +bid;
   if (!(bid > 0)) return { galat: 'Angka harga tidak valid.' };
@@ -414,9 +481,9 @@ function kalibrasi(sym, bid, reset) {
 function lastClose(seri) { const S = DATA.get(seri + '|1m'); return S && S.n ? S.c[S.n - 1] : 0; }
 /** faktor USD: Exness BTCUSD memakai dolar AS, Binance memakai USDT (USDCUSDT ≈ harga 1 USD dalam USDT) */
 function faktorUsd() { const u = HARGA.USDCUSDT; return u && u.p > 0.9 && u.p < 1.1 ? 1 / u.p : 1; }
-const skala = sym => sym === 'XAUUSDm' ? ((KAL.XAUUSDm && KAL.XAUUSDm.k) || RASIO.k || 1) : faktorUsd();
+const skala = sym => SUMBER === 'exness' ? 1 : sym === 'XAUUSDm' ? ((KAL.XAUUSDm && KAL.XAUUSDm.k) || RASIO.k || 1) : faktorUsd();
 /** geser harga tampilan: selisih kalibrasi Exness (BTC) − setengah spread (harga Bid, seperti di Exness) */
-const geserHarga = sym => (sym === 'BTCUSDT' && KAL.BTCUSDT ? KAL.BTCUSDT.d : 0) - SET.spread[sym] / 2;
+const geserHarga = sym => SUMBER === 'exness' ? 0 : (sym === 'BTCUSDT' && KAL.BTCUSDT ? KAL.BTCUSDT.d : 0) - SET.spread[sym] / 2;
 /** harga internal (Binance) → harga tampilan Exness Bid. Jarak/selisih cukup dikali skala(). */
 const hp = (sym, x) => x * skala(sym) + geserHarga(sym);
 const biayaInternal = sym => SET.spread[sym] / skala(sym);
@@ -617,7 +684,7 @@ class Analisis {
   constructor(sym, tf) {
     this.sym = sym; this.tf = tf; this.key = sym + '|' + tf;
     this.S = DATA.get(INFO[sym].seri + '|' + tf);
-    const c0 = KV.get('cfg|' + this.key), c = c0 && c0.algo === ALGO ? c0 : null;
+    const c0 = KV.get('cfg|' + this.key), c = c0 && c0.algo === ALGO && (c0.sumber || 'binance') === SUMBER ? c0 : null;
     this.cfg = c && c.cfg || null; this.hasil = c && c.hasil || null;
     this.r = this.cfg ? this.cfg.r : R_BAKU;
     this.I = null; this.uji = []; this.exc = null; this.batasStat = null;
@@ -669,7 +736,7 @@ async function optimalkan(An) {
       An.cfg = pilih.cfg; An.r = pilih.cfg.r;
       An.hasil = ringkasHasil(An, pilih.F, { gaya: SET.gaya, gayaDipakai, diuji: hasil.length, lolos: lolosSemua, hari });
     }
-    kvSet('cfg|' + An.key, { cfg: An.cfg, hasil: An.hasil, t: An.optT, n: An.optN, algo: ALGO });
+    kvSet('cfg|' + An.key, { cfg: An.cfg, hasil: An.hasil, t: An.optT, n: An.optN, algo: ALGO, sumber: SUMBER });
     An.perbarui();
     hitungRinci(An);
   } finally { An.optJalan = false; }
@@ -981,7 +1048,8 @@ function tiapDetik() {
   for (const s of SYMS) harga[s] = { p: hp(s, hargaKini(s)), ubah: ubah24(s), lencana: lencana(s, LIHAT.tf), buka: !INFO[s].emas || emasBuka(kini()), kal: KAL[s] };
   const wsHidup = STATUS.ws && Date.now() - STATUS.wsT < 8000;
   kirim({ op: 'detik', s: An ? statusDetik(An) : null, harga, kurs: KURS,
-    feed: { ws: wsHidup, rest: STATUS.rest, galat: STATUS.galat, unduh: STATUS.unduh, rasio: RASIO.t ? RASIO.k : null } });
+    feed: { ws: wsHidup, rest: STATUS.rest, galat: STATUS.galat, unduh: STATUS.unduh, rasio: RASIO.t ? RASIO.k : null,
+      sumber: SUMBER, exn: { ok: EXN.ok, galat: EXN.galat, spread: EXN.spread, ws: EXN.wsOk } } });
   if (!wsHidup && (!STATUS.ws || Date.now() - STATUS.wsT > 8000)) pollRest();
 }
 
@@ -1000,6 +1068,7 @@ function denyut() {
 async function rekonsiliasi(tf, tutup) {
   await Promise.all(SERI.map(async seri => {
     const S = DATA.get(seri + '|' + tf); if (!S || !S.n) return;
+    if (SUMBER === 'exness' && SYM_DARI[seri] !== LIHAT.sym && Math.floor(tutup / TF_MS[tf]) % 5) return;   // hemat kuota relay
     try {
       const lama = (tutup - S.akhir) / S.ms;
       if (lama > 3) await isiRiwayat(S, SIMPAN[tf][0]);
@@ -1049,15 +1118,15 @@ async function mulai() {
   await bukaDb();
   const r = KV.get('rasio'); if (r && r.k) RASIO = r;
   const kv = KV.get('kurs'); if (kv && kv.v) KURS = kv.v;
+  if (await cekExness()) pakaiExness();
   for (const seri of SERI) for (const tf of TFS) DATA.set(seri + '|' + tf, new Seri(seri, tf));
   await Promise.all([...DATA.values()].map(S => muatSeri(S)));
   for (const S of DATA.values()) await pangkasSeri(S);
   for (const sym of SYMS) for (const tf of TFS) AN.set(sym + '|' + tf, new Analisis(sym, tf));
-  sambungWs();
-  await ambilUsdc(); setInterval(ambilUsdc, 60000);
+  if (SUMBER === 'exness') sambungExness();
+  else { sambungWs(); await ambilUsdc(); setInterval(ambilUsdc, 60000); setInterval(spotEmas, 30000); }
   setInterval(denyut, 200);
   ambilKurs(); setInterval(ambilKurs, 6 * JAM);
-  setInterval(spotEmas, 30000);
   setInterval(simpanSemua, 20000);
   setInterval(cekBasi, 10 * MENIT);
   // tampilkan dulu apa yang sudah terekam
@@ -1065,8 +1134,8 @@ async function mulai() {
     const An = AN.get(sym + '|' + tf);
     if (An.S.n > 300) { An.perbarui(); if (An.hasil) hitungRinci(An); }
   }
-  const p0 = spotEmas();
-  if (LIHAT.sym === 'XAUUSDm' && !RASIO.t) await p0;
+  const p0 = SUMBER === 'exness' ? Promise.resolve() : spotEmas();
+  if (SUMBER !== 'exness' && LIHAT.sym === 'XAUUSDm' && !RASIO.t) await p0;
   kirimRiwayat(LIHAT.sym, LIHAT.tf);
   // unduh: yang dilihat lebih dulu
   for (const [sym, tf] of urutan()) {
@@ -1076,7 +1145,7 @@ async function mulai() {
       if (!S.n) { S.gabung(await klinesUlang(S.seri, tf, null, 1000)); if (sym === LIHAT.sym && tf === LIHAT.tf) { An.perbarui(); kirimRiwayat(sym, tf); } }
       await isiRiwayat(S, SIMPAN[tf][0], (b, t) => { STATUS.unduh = { sym, tf, beres: b, total: t }; });
     } catch (e) { STATUS.galat = 'unduh ' + S.key + ': ' + (e && e.message || e); }
-    if (sym === 'XAUUSDm') { await p0; if (!RASIO.t || (RASIO.tutup && RASIO.tutup !== DATA.get('PAXGUSDT|1m').akhir)) await spotEmas(); }
+    if (sym === 'XAUUSDm' && SUMBER !== 'exness') { await p0; if (!RASIO.t || (RASIO.tutup && RASIO.tutup !== DATA.get('PAXGUSDT|1m').akhir)) await spotEmas(); }
     await siapkan(An);
     await simpanSeri(S);
   }
@@ -1113,6 +1182,7 @@ self.onmessage = async ev => {
     if (m.op === 'mulai') {
       if (m.set) setel(m.set, false);
       if (m.lihat) LIHAT = { sym: m.lihat.sym, tf: m.lihat.tf };
+      if (m.exness) { EXN.edge = String(m.exness.edge || '').replace(/\/+$/, ''); EXN.token = String(m.exness.token || ''); }
       mulai();
     } else if (m.op === 'lihat') {
       LIHAT = { sym: m.sym, tf: m.tf };

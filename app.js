@@ -53,7 +53,13 @@
   const W = new Worker('mesin.js?v=' + encodeURIComponent(VERSI));
   W.onmessage = e => { try { terima(e.data); } catch (err) { console.error(err); } };
   W.onerror = e => { setT($('muat-t'), 'Mesin gagal dimuat: ' + (e.message || 'galat')); };
-  W.postMessage({ op: 'mulai', set: { lot: P.lot, spread: P.spread, gaya: P.gaya, kal: P.kal }, lihat: { sym: P.sym, tf: P.tf } });
+  // feed resmi Exness lewat relay Supabase amatu-exness (perlu login Portal AMATU; tanpa itu mesin memakai Binance)
+  const EDGE_EXN = 'https://ieyqxmzztoxgpvwexbkj.supabase.co/functions/v1/amatu-exness';
+  const lokal = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  const tokenPortal = () => { try { const s = window.AMATU && window.AMATU.sess && window.AMATU.sess(); return (s && s.t) || ''; } catch (e) { return ''; } };
+  const EXNESS = { edge: (lokal && qs.get('exness')) || EDGE_EXN, token: (lokal && qs.get('xt')) || tokenPortal() };
+  let FEED = { sumber: 'binance', exn: {} };
+  W.postMessage({ op: 'mulai', set: { lot: P.lot, spread: P.spread, gaya: P.gaya, kal: P.kal }, lihat: { sym: P.sym, tf: P.tf }, exness: EXNESS });
 
   // ---------------------------------------------------------------- chart
   const LW = window.LightweightCharts;
@@ -289,12 +295,13 @@
       setC(c, 'pc ' + (ok(h.ubah) ? (h.ubah >= 0 ? 'up' : 'dn') : ''));
       setC(b.querySelector('[data-badge]'), 'pb ' + (h.lencana === 'SELL' ? 'sell' : h.lencana === 'BUY' ? 'buy' : ''));
       b.classList.toggle('tutup', !h.buka);
-      const umur = h.kal && h.kal.t ? Date.now() - h.kal.t : Infinity;
+      const umur = FEED.sumber === 'exness' ? 0 : h.kal && h.kal.t ? Date.now() - h.kal.t : Infinity;
       setC(b.querySelector('[data-kal]'), 'pk' + (umur < 12 * 3600e3 ? ' ok' : umur < Infinity ? ' lama' : ''));
       HDR[sym] = h;
     }
     infoKal();
     const s = m.s, f = m.feed || {};
+    if (f.sumber) { FEED = f; renderSumber(); }
     setT($('jam'), jms(s ? s.t : Date.now()));
     const live = $('live');
     setC(live, 'live ' + (f.ws ? 'on' : f.rest && Date.now() - f.rest < 15000 ? 'poll' : 'off'));
@@ -646,7 +653,30 @@
     const kapan = umur < 864e5 ? jm(k.t) + ' WIB' : new Date(k.t + WIB).toISOString().slice(8, 10) + '/' + new Date(k.t + WIB).toISOString().slice(5, 7);
     return `${lama ? '⚠ ' : '✓ '}Disamakan ${kapan} (Bid ${nf(sym === 'XAUUSDm' ? 3 : 2).format(k.bid)}, ${sel})${lama ? ' — sudah lama, samakan lagi' : ''}`;
   }
+  const ALASAN_EXN = {
+    BELUM_DIKONFIGURASI: 'Feed resmi Exness belum dipasang (API key belum disimpan di server).',
+    BELUM_LOGIN_PORTAL: 'Masuk Portal AMATU dulu untuk memakai feed resmi Exness.',
+    AUTH_INVALID_API_KEY: 'API key Exness ditolak — periksa kunci yang disimpan.',
+    AUTH_INVALID_SIGNATURE: 'Kunci privat Exness tidak cocok dengan API key.',
+    AUTH_PERMISSION_DENIED: 'API key Exness tidak diizinkan (izin data harga, akun, atau IP).',
+    ACCOUNT_NOT_FOUND: 'Nomor akun Exness tidak dikenali untuk API key ini.',
+  };
+  const alasanExn = g => !g ? '' : ALASAN_EXN[g] || (/HTTP 401/.test(g) ? 'Login portal kedaluwarsa — muat ulang halaman.' : 'Feed resmi Exness belum tersambung (' + g + ').');
+  function renderSumber() {
+    const x = FEED.sumber === 'exness', el = $('sumber');
+    setT(el, x ? 'EXNESS' : 'BINANCE ≈'); setC(el, 'src' + (x ? ' exn' : ''));
+  }
   function renderKal() {
+    const x = FEED.sumber === 'exness', box = $('kal-exn');
+    box.classList.toggle('hidden', !x); $('kal-rows').classList.toggle('hidden', x); $('kal-cat').classList.toggle('hidden', x);
+    if (x) {
+      const sp = (FEED.exn && FEED.exn.spread) || {};
+      box.innerHTML = `✓ <b>Feed resmi Exness aktif</b> — candle & tick langsung dari server Exness (Bid), jadi harga, batas, entry/TP/SL sama dengan terminal Exness.` +
+        `<br><span class="muted">Spread langsung: BTCUSDm ${sp.BTCUSDT ? '$' + nf(2).format(sp.BTCUSDT) : '–'} · XAUUSDm ${sp.XAUUSDm ? '$' + nf(3).format(sp.XAUUSDm) : '–'}</span>`;
+      return;
+    }
+    const g = FEED.exn && FEED.exn.galat;
+    $('kal-cat').innerHTML = (g ? `<span class="am">${alasanExn(g)}</span> Sementara itu: ` : '') + 'buka terminal Exness, lihat harga <b>Bid</b> (tombol Sell / judul tab "BTC Bid …"), ketik di sini lalu tekan Samakan. Chart, batas gelombang, entry/TP/SL lalu mengikuti harga Exness.';
     document.querySelectorAll('.kal-row').forEach(r => {
       const sym = r.dataset.sym, st = r.querySelector('.kal-s');
       st.innerHTML = teksKal(sym) + (P.kal[sym] ? ' · <button class="link reset">Reset</button>' : '');
@@ -675,7 +705,7 @@
   let infoKalTutup = false;
   function infoKal() {
     const el = $('info-kal'), k = P.kal[P.sym], tutup = CH.s && CH.s.keadaan === 'TUTUP';
-    const perlu = !infoKalTutup && !tutup && (!k || Date.now() - k.t > 12 * 3600e3);
+    const perlu = FEED.sumber !== 'exness' && !infoKalTutup && !tutup && (!k || Date.now() - k.t > 12 * 3600e3);
     el.classList.toggle('hidden', !perlu);
     if (perlu) setT($('info-kal-t'), k ? `Kalibrasi harga ${NAMA[P.sym]} sudah lama — samakan lagi dengan Exness?` : `Harga ${NAMA[P.sym]} masih perkiraan dari Binance. Samakan dengan Exness?`);
   }
@@ -690,7 +720,9 @@
 
   function bukaSetelan() {
     $('set-lot').value = P.lot; $('set-sp-btc').value = P.spread.BTCUSDT; $('set-sp-xau').value = P.spread.XAUUSDm; $('set-bunyi').checked = P.bunyi;
-    $('set-info').textContent = `Sumber: Binance (BTC = BTCUSDT ÷ USDCUSDT agar dalam USD seperti Exness; XAU = PAXGUSDT × rasio emas). Semua harga ditampilkan sebagai Bid seperti di Exness. Tanpa kalibrasi, selisih ke Exness bisa beberapa dolar. Kurs USD/IDR ${nf(0).format(KURS)}.`;
+    $('set-info').textContent = FEED.sumber === 'exness'
+      ? `Sumber: feed resmi Exness (Exness Trader API lewat server AMATU, hanya membaca harga). Riwayat candle & tick Bid langsung dari Exness, disimpan di browser ini. Kurs USD/IDR ${nf(0).format(KURS)}.`
+      : `Sumber: Binance (BTC = BTCUSDT ÷ USDCUSDT agar dalam USD seperti Exness; XAU = PAXGUSDT × rasio emas). Semua harga ditampilkan sebagai Bid seperti di Exness. Tanpa kalibrasi, selisih ke Exness bisa beberapa dolar. Kurs USD/IDR ${nf(0).format(KURS)}.`;
     renderKal();
     pop.classList.remove('hidden');
   }
@@ -719,10 +751,13 @@
 
   // keterangan (hover / ketuk)
   const TIP = {
-    live: () => { const i = $('live').dataset.info; return i === 'ws' ? '<b>Live</b> — harga langsung dari WebSocket Binance, diperbarui tiap detik.' : i === 'poll' ? '<b>Cadangan</b> — WebSocket terputus, harga diambil lewat REST tiap ±1 detik.' : '<b>Terputus</b> — mencoba menyambung lagi.'; },
+    live: () => { const i = $('live').dataset.info, x = FEED.sumber === 'exness', src = x ? 'feed resmi Exness (relay)' : 'WebSocket Binance';
+      return (i === 'ws' ? `<b>Live</b> — harga langsung dari ${src}, diperbarui tiap detik.` : i === 'poll' ? '<b>Cadangan</b> — WebSocket terputus, harga diambil lewat REST.' : '<b>Terputus</b> — mencoba menyambung lagi.') +
+        (x ? '' : '<br>' + (alasanExn(FEED.exn && FEED.exn.galat) || 'Sumber: Binance (perkiraan harga Exness).')); },
     harga: el => {
       const sym = el.dataset.sym, h = HDR[sym];
-      return `<b>${NAMA[sym]} Bid ${h && ok(h.p) ? fh(h.p) : ''}</b><br>${sym === 'BTCUSDT' ? 'Binance BTCUSDT ÷ USDCUSDT (USD)' : 'PAXGUSDT × rasio emas'}, ditampilkan sebagai Bid (tengah − spread/2).<br>${teksKal(sym)}`;
+      if (FEED.sumber === 'exness') return `<b>${NAMA[sym]} Bid ${h && ok(h.p) ? fh(h.p) : ''}</b><br>Feed resmi Exness (Trader API): Bid langsung dari server Exness, sama dengan terminal Anda.`;
+      return `<b>${NAMA[sym]} Bid ${h && ok(h.p) ? fh(h.p) : ''}</b><br>${sym === 'BTCUSDT' ? 'Binance BTCUSDT ÷ USDCUSDT (USD)' : 'PAXGUSDT × rasio emas'}, ditampilkan sebagai Bid (tengah − spread/2).<br>${teksKal(sym)}${FEED.exn && FEED.exn.galat ? '<br>' + alasanExn(FEED.exn.galat) : ''}`;
     },
     hitung: () => 'Jam pasir candle: sisa waktu sampai candle ini tutup. Pola candle baru sah saat candle tutup.',
     gelombang: () => 'Batas Atas/Bawah = puncak & lembah gelombang terakhir. Satu gelombang terkonfirmasi bila harga berbalik minimal sekian ATR dari titik ekstremnya; ukuran ini dipilih dari uji riwayat.',

@@ -37,7 +37,7 @@
     </div>
     <div class="grow"></div>
     <div class="baru hidden" id="baru"><button id="btn-baru">Versi baru · muat ulang</button></div>
-    <div class="live" id="live" data-tip="live"><i class="dot"></i><span class="jam" id="jam">--.--.--</span><small>WIB</small></div>
+    <div class="live" id="live" data-tip="live"><i class="dot"></i><span class="jam" id="jam">--.--.--</span><small>WIB</small><b class="src" id="sumber"></b></div>
     <button class="ic" id="btn-bunyi" aria-label="Bunyi sinyal"><svg><use href="#i-bunyi"/></svg></button>
     <button class="ic" id="btn-setelan" aria-label="Setelan"><svg><use href="#i-gir"/></svg></button>
   </header>
@@ -157,10 +157,13 @@
   <div class="pop-card">
     <header><b>Setelan</b><button class="ic" id="set-tutup" aria-label="Tutup"><svg><use href="#i-x"/></svg></button></header>
     <section class="kal" id="kal">
-      <h3>Samakan harga dengan Exness</h3>
-      <p class="note">Buka terminal Exness, lihat harga <b>Bid</b> (tombol Sell / judul tab "BTC Bid …"), ketik di sini lalu tekan Samakan. Chart, batas gelombang, entry/TP/SL lalu mengikuti harga Exness.</p>
+      <h3>Harga Exness</h3>
+      <div class="kal-exn hidden" id="kal-exn"></div>
+      <div id="kal-rows">
+      <p class="note" id="kal-cat">Buka terminal Exness, lihat harga <b>Bid</b> (tombol Sell / judul tab "BTC Bid …"), ketik di sini lalu tekan Samakan. Chart, batas gelombang, entry/TP/SL lalu mengikuti harga Exness.</p>
       <div class="kal-row" data-sym="BTCUSDT"><span class="kal-n">BTCUSDm</span><input type="text" inputmode="decimal" placeholder="Bid Exness, mis. 67306.76" autocomplete="off"><button class="btn sm">Samakan</button><small class="kal-s"></small></div>
       <div class="kal-row" data-sym="XAUUSDm"><span class="kal-n">XAUUSDm</span><input type="text" inputmode="decimal" placeholder="Bid Exness, mis. 3883.075" autocomplete="off"><button class="btn sm">Samakan</button><small class="kal-s"></small></div>
+      </div>
     </section>
     <label class="fld"><span>Lot <small>(untuk hitungan Rp)</small></span><input id="set-lot" type="number" min="0.01" step="0.01" inputmode="decimal"></label>
     <label class="fld"><span>Spread BTCUSDm <small>(USD, lihat selisih Buy−Sell di Exness)</small></span><input id="set-sp-btc" type="number" min="0" step="0.1" inputmode="decimal"></label>

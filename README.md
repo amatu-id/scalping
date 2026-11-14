@@ -11,7 +11,7 @@ https://amatu-id.github.io/scalping/ — scalping BTCUSDT & XAUUSDm (bagian dari
 - **Rekam riwayat**: candle 1m (hingga 60 hari) dan 5m (hingga 365 hari) di IndexedDB browser (`amatu-scalping`), terus bertambah.
 - **Kebiasaan pasar**: gerak rata-rata per jam WIB, arah dominan, hasil strategi per sesi, sisa waktu sesi.
 
-Data: Binance spot publik (`data-api.binance.vision`, `data-stream.binance.vision`). XAUUSDm = PAXGUSDT × rasio harga spot emas (gold-api.com); candle di luar jam pasar emas dibuang. Semua hitungan berjalan di browser (Web Worker `mesin.js`), tanpa server.
+Data: Binance spot publik (`data-api.binance.vision`, `data-stream.binance.vision`). **Harga ditampilkan seperti Exness (Bid)**: BTCUSDm = BTCUSDT ÷ USDCUSDT (Exness memakai USD, bukan USDT; tanpa ini harga ~$70–80 lebih tinggi dari Exness) − spread/2; XAUUSDm = PAXGUSDT × rasio emas − spread/2, candle di luar jam pasar emas dibuang. Menu Setelan → **Samakan harga dengan Exness**: ketik Bid dari terminal Exness, selisihnya disimpan (BTC: selisih USD, XAU: rasio) dan ikut tersinkron lewat portal. Uji 14 Nov 2026: setelah disamakan, selisih ke Bid Exness median ±$5 (BTC); harga Exness tetap punya feed sendiri, jadi tidak identik per tick. Arsip tick resmi Exness (`ticks.ex2archive.com`) dipakai untuk mengukur selisih ini. Semua hitungan berjalan di browser (Web Worker `mesin.js`), tanpa server.
 
 Hasil uji masa lalu bukan jaminan hasil berikutnya; ini alat bantu analisis, bukan saran investasi.
 

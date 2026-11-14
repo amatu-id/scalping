@@ -8,6 +8,7 @@
   const TF_MENIT = { '1m': 1, '5m': 5 };
   const WIB = 7 * 3600e3;
   const C = { up: '#22c39a', dn: '#f2545b', am: '#f5b041', bl: '#5b8cff', mu: '#8790a1', line: '#1d2430' };
+  const NAMA = { BTCUSDT: 'BTCUSDm', XAUUSDm: 'XAUUSDm' };   // nama simbol seperti di Exness
 
   // ---------------------------------------------------------------- preferensi (kunci berawalan scalping.)
   const LS = {
@@ -18,7 +19,8 @@
   const P = {
     sym: qs.get('sym') || LS.get('sym', 'BTCUSDT'), tf: qs.get('tf') || LS.get('tf', '1m'),
     gaya: LS.get('gaya', 'seimbang'), lot: +LS.get('lot', 0.01) || 0.01,
-    spread: Object.assign({ BTCUSDT: 6.4, XAUUSDm: 0.2 }, LS.get('spread', {})),
+    spread: Object.assign({ BTCUSDT: 6.4, XAUUSDm: 0.24 }, LS.get('spread', {})),
+    kal: Object.assign({ BTCUSDT: null, XAUUSDm: null }, LS.get('kal', {})),   // kalibrasi harga ke Exness
     bunyi: LS.get('bunyi', true) !== false, rw: LS.get('rw', 'live'),
   };
   if (!SYMS.includes(P.sym)) P.sym = 'BTCUSDT';
@@ -51,7 +53,7 @@
   const W = new Worker('mesin.js?v=' + encodeURIComponent(VERSI));
   W.onmessage = e => { try { terima(e.data); } catch (err) { console.error(err); } };
   W.onerror = e => { setT($('muat-t'), 'Mesin gagal dimuat: ' + (e.message || 'galat')); };
-  W.postMessage({ op: 'mulai', set: { lot: P.lot, spread: P.spread, gaya: P.gaya }, lihat: { sym: P.sym, tf: P.tf } });
+  W.postMessage({ op: 'mulai', set: { lot: P.lot, spread: P.spread, gaya: P.gaya, kal: P.kal }, lihat: { sym: P.sym, tf: P.tf } });
 
   // ---------------------------------------------------------------- chart
   const LW = window.LightweightCharts;
@@ -252,7 +254,7 @@
     if (!bar) { el.innerHTML = ''; return; }
     const tm = (bar.time - 7 * 3600) * 1000;
     const tr = CH.tr && CH.tr.get(tm);
-    const nm = P.sym === 'XAUUSDm' ? 'XAUUSDm' : 'BTCUSDT';
+    const nm = NAMA[P.sym];
     let h = `<span class="t">${nm} · ${P.tf}</span><span class="ohl">O <b>${fh(bar.open)}</b></span><span class="ohl">H <b>${fh(bar.high)}</b></span><span class="ohl">L <b>${fh(bar.low)}</b></span><span>C <b>${fh(bar.close)}</b></span>`;
     if (tr) h += `<span class="tr ${tr.pnl > 0 ? 'w' : 'l'}">${tr.side < 0 ? 'SELL' : 'BUY'} ${fh(tr.entry)} → ${tr.hasil} ${fh(tr.keluar)} · ${frp(keRp(tr.pnl, P.sym))}${tr.sumber === 'live' ? ' · live' : ' · uji'}</span>`;
     if (el.innerHTML !== h) el.innerHTML = h;
@@ -268,6 +270,7 @@
       case 'analisis': if (m.sym === P.sym && m.tf === P.tf) { Object.assign(A, m); renderStrategi(); renderRiwayat(); renderKeb(); CH.jurnal = m.jurnal; pasangPenanda(); } break;
       case 'analisis-selesai': ulangSelesai(); break;
       case 'sinyal': onSinyal(m); break;
+      case 'kalibrasi-ok': kalibrasiOk(m); break;
       case 'terhapus': location.reload(); break;
       case 'galat': console.warn('[mesin]', m.pesan); break;
     }
@@ -286,7 +289,11 @@
       setC(c, 'pc ' + (ok(h.ubah) ? (h.ubah >= 0 ? 'up' : 'dn') : ''));
       setC(b.querySelector('[data-badge]'), 'pb ' + (h.lencana === 'SELL' ? 'sell' : h.lencana === 'BUY' ? 'buy' : ''));
       b.classList.toggle('tutup', !h.buka);
+      const umur = h.kal && h.kal.t ? Date.now() - h.kal.t : Infinity;
+      setC(b.querySelector('[data-kal]'), 'pk' + (umur < 12 * 3600e3 ? ' ok' : umur < Infinity ? ' lama' : ''));
+      HDR[sym] = h;
     }
+    infoKal();
     const s = m.s, f = m.feed || {};
     setT($('jam'), jms(s ? s.t : Date.now()));
     const live = $('live');
@@ -306,7 +313,7 @@
     else tut.classList.add('hidden');
     if (!$('muat').classList.contains('pergi') && CH.bars.length > 30 && !f.unduh) $('muat').classList.add('pergi');
     const lbl = { POSISI: s.aktif ? (s.aktif.side < 0 ? 'SELL' : 'BUY') : '', KANDIDAT: 'calon ' + (s.arah < 0 ? 'SELL' : 'BUY'), SIAGA: 'siaga', TEMBUS: 'tembus', TUTUP: 'tutup' }[s.keadaan] || '';
-    document.title = `${ok(s.harga) ? fh(s.harga) : ''} ${P.sym}${lbl ? ' · ' + lbl : ''} · Scalping`;
+    document.title = `${NAMA[P.sym]} Bid ${ok(s.harga) ? fh(s.harga) : ''}${lbl ? ' · ' + lbl : ''} · Scalping`;
     if ((CH.mkAkt || 0) !== (s.aktif ? s.aktif.t0 : 0)) pasangPenanda();
   }
 
@@ -517,7 +524,7 @@
     }
     const el = $('rw-list');
     if (!list.length) {
-      el.innerHTML = `<div class="rw-kosong">${live ? 'Belum ada sinyal live di ' + sym + ' ' + P.tf + '.<br>Sinyal & hasilnya direkam di sini begitu muncul.' : 'Belum ada trade uji.'}</div>`;
+      el.innerHTML = `<div class="rw-kosong">${live ? 'Belum ada sinyal live di ' + NAMA[sym] + ' ' + P.tf + '.<br>Sinyal & hasilnya direkam di sini begitu muncul.' : 'Belum ada trade uji.'}</div>`;
       return;
     }
     const rows = list.slice(-80).reverse().map(x => {
@@ -578,7 +585,7 @@
     clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), 9000);
   }
   function onSinyal(m) {
-    const arah = m.side < 0 ? 'SELL' : 'BUY', nm = `${m.sym} ${m.tf}`;
+    const arah = m.side < 0 ? 'SELL' : 'BUY', nm = `${NAMA[m.sym]} ${m.tf}`;
     if (m.jenis === 'buka') { bunyi([880, 1320]); toast(`<b class="${m.side < 0 ? 'dn' : 'up'}">${arah}</b> ${nm} @ ${fh(m.entry)}` + (m.sym !== P.sym || m.tf !== P.tf ? ' <button>Lihat</button>' : ''), () => pilih(m.sym, m.tf)); }
     else { bunyi(m.pnl > 0 ? [1320, 1760] : [440, 330]); toast(`${arah} ${nm} selesai: <b class="${m.pnl > 0 ? 'up' : 'dn'}">${m.hasil} ${frp(keRp(m.pnl, m.sym))}</b>` + (m.sym !== P.sym || m.tf !== P.tf ? ' <button>Lihat</button>' : ''), () => pilih(m.sym, m.tf)); }
   }
@@ -621,9 +628,70 @@
 
   // setelan
   const pop = $('setelan');
+  // ---------------------------------------------------------------- samakan harga dengan Exness
+  const HDR = {};
+  function angka(x) {   // "67,306.76" · "67.306,76" · "3883.075" → angka
+    let t = String(x || '').trim().replace(/[\s$]/g, '');
+    if (!t) return NaN;
+    const ti = (t.match(/\./g) || []).length, ko = (t.match(/,/g) || []).length;
+    if (ti && ko) { const des = t.lastIndexOf('.') > t.lastIndexOf(',') ? '.' : ','; t = t.split(des === '.' ? ',' : '.').join(''); if (des === ',') t = t.replace(',', '.'); }
+    else if (ko > 1) t = t.replace(/,/g, ''); else if (ti > 1) t = t.replace(/\./g, ''); else if (ko === 1) t = t.replace(',', '.');
+    return parseFloat(t);
+  }
+  function teksKal(sym) {
+    const k = P.kal[sym];
+    if (!k || !k.t) return 'Belum disamakan — harga masih perkiraan dari Binance.';
+    const sel = sym === 'BTCUSDT' ? `selisih ${k.d >= 0 ? '+' : '−'}$${nf(2).format(Math.abs(k.d))}` : `rasio ${nf(5).format(k.k)}`;
+    const umur = Date.now() - k.t, lama = umur > 12 * 3600e3;
+    const kapan = umur < 864e5 ? jm(k.t) + ' WIB' : new Date(k.t + WIB).toISOString().slice(8, 10) + '/' + new Date(k.t + WIB).toISOString().slice(5, 7);
+    return `${lama ? '⚠ ' : '✓ '}Disamakan ${kapan} (Bid ${nf(sym === 'XAUUSDm' ? 3 : 2).format(k.bid)}, ${sel})${lama ? ' — sudah lama, samakan lagi' : ''}`;
+  }
+  function renderKal() {
+    document.querySelectorAll('.kal-row').forEach(r => {
+      const sym = r.dataset.sym, st = r.querySelector('.kal-s');
+      st.innerHTML = teksKal(sym) + (P.kal[sym] ? ' · <button class="link reset">Reset</button>' : '');
+      st.className = 'kal-s' + (P.kal[sym] && Date.now() - P.kal[sym].t < 12 * 3600e3 ? ' ok' : P.kal[sym] ? ' lama' : '');
+    });
+  }
+  document.querySelectorAll('.kal-row').forEach(r => {
+    const sym = r.dataset.sym, inp = r.querySelector('input');
+    const kirimKal = () => {
+      const v = angka(inp.value);
+      if (!(v > 0)) { r.querySelector('.kal-s').textContent = 'Ketik harga Bid dari Exness dulu.'; return; }
+      W.postMessage({ op: 'kalibrasi', sym, bid: v });
+    };
+    r.querySelector('.btn').addEventListener('click', kirimKal);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); kirimKal(); } });
+    r.addEventListener('click', e => { if (e.target.closest('.reset')) W.postMessage({ op: 'kalibrasi', sym, reset: true }); });
+  });
+  function kalibrasiOk(m) {
+    const r = document.querySelector(`.kal-row[data-sym="${m.sym}"]`);
+    if (m.galat) { if (r) r.querySelector('.kal-s').textContent = m.galat; return; }
+    P.kal[m.sym] = m.kal; LS.set('kal', P.kal);
+    if (r) r.querySelector('input').value = '';
+    renderKal(); infoKal();
+    toast(m.kal ? `<b>${NAMA[m.sym]}</b> disamakan dengan harga Exness` : `Kalibrasi ${NAMA[m.sym]} direset ke perkiraan Binance`);
+  }
+  let infoKalTutup = false;
+  function infoKal() {
+    const el = $('info-kal'), k = P.kal[P.sym], tutup = CH.s && CH.s.keadaan === 'TUTUP';
+    const perlu = !infoKalTutup && !tutup && (!k || Date.now() - k.t > 12 * 3600e3);
+    el.classList.toggle('hidden', !perlu);
+    if (perlu) setT($('info-kal-t'), k ? `Kalibrasi harga ${NAMA[P.sym]} sudah lama — samakan lagi dengan Exness?` : `Harga ${NAMA[P.sym]} masih perkiraan dari Binance. Samakan dengan Exness?`);
+  }
+  $('info-kal-b').addEventListener('click', () => { bukaSetelan(); const r = document.querySelector(`.kal-row[data-sym="${P.sym}"] input`); if (r) setTimeout(() => r.focus(), 60); });
+  $('info-kal-x').addEventListener('click', () => { infoKalTutup = true; infoKal(); });
+  // kalibrasi dari perangkat lain (disinkronkan oleh portal)
+  window.addEventListener('storage', e => {
+    if (e.key !== 'scalping.kal') return;
+    P.kal = Object.assign({ BTCUSDT: null, XAUUSDm: null }, LS.get('kal', {}));
+    W.postMessage({ op: 'setel', set: { kal: P.kal } }); W.postMessage({ op: 'lihat', sym: P.sym, tf: P.tf }); renderKal();
+  });
+
   function bukaSetelan() {
     $('set-lot').value = P.lot; $('set-sp-btc').value = P.spread.BTCUSDT; $('set-sp-xau').value = P.spread.XAUUSDm; $('set-bunyi').checked = P.bunyi;
-    $('set-info').textContent = `Data: Binance BTCUSDT; XAUUSDm = PAXGUSDT × harga spot emas (gold-api.com), jadi bisa selisih sedikit dari Exness. Kurs USD/IDR ${nf(0).format(KURS)}. Rekaman candle & sinyal disimpan di browser ini.`;
+    $('set-info').textContent = `Sumber: Binance (BTC = BTCUSDT ÷ USDCUSDT agar dalam USD seperti Exness; XAU = PAXGUSDT × rasio emas). Semua harga ditampilkan sebagai Bid seperti di Exness. Tanpa kalibrasi, selisih ke Exness bisa beberapa dolar. Kurs USD/IDR ${nf(0).format(KURS)}.`;
+    renderKal();
     pop.classList.remove('hidden');
   }
   $('btn-setelan').addEventListener('click', bukaSetelan);
@@ -652,6 +720,10 @@
   // keterangan (hover / ketuk)
   const TIP = {
     live: () => { const i = $('live').dataset.info; return i === 'ws' ? '<b>Live</b> — harga langsung dari WebSocket Binance, diperbarui tiap detik.' : i === 'poll' ? '<b>Cadangan</b> — WebSocket terputus, harga diambil lewat REST tiap ±1 detik.' : '<b>Terputus</b> — mencoba menyambung lagi.'; },
+    harga: el => {
+      const sym = el.dataset.sym, h = HDR[sym];
+      return `<b>${NAMA[sym]} Bid ${h && ok(h.p) ? fh(h.p) : ''}</b><br>${sym === 'BTCUSDT' ? 'Binance BTCUSDT ÷ USDCUSDT (USD)' : 'PAXGUSDT × rasio emas'}, ditampilkan sebagai Bid (tengah − spread/2).<br>${teksKal(sym)}`;
+    },
     hitung: () => 'Jam pasir candle: sisa waktu sampai candle ini tutup. Pola candle baru sah saat candle tutup.',
     gelombang: () => 'Batas Atas/Bawah = puncak & lembah gelombang terakhir. Satu gelombang terkonfirmasi bila harga berbalik minimal sekian ATR dari titik ekstremnya; ukuran ini dipilih dari uji riwayat.',
     struktur: () => 'Struktur gelombang: HH & HL (puncak dan lembah makin tinggi) = naik; LH & LL = turun; campuran = datar.',

@@ -1,7 +1,8 @@
 'use strict';
 /* Amatu Scalping · mesin (Web Worker) · versi %%VERSI%%
- * - Data  : Binance spot publik. BTCUSDT langsung; XAUUSDm = PAXGUSDT × rasio spot emas (gold-api.com),
- *           candle di luar jam pasar emas dibuang. REST data-api.binance.vision + WebSocket data-stream.binance.vision.
+ * - Data  : Binance spot publik. BTCUSDm = BTCUSDT ÷ USDCUSDT (Exness memakai USD, bukan USDT) + selisih kalibrasi Exness;
+ *           XAUUSDm = PAXGUSDT × rasio (kalibrasi harga Exness, cadangan spot gold-api.com), candle di luar jam pasar emas dibuang.
+ *           Semua harga yang dikirim ke halaman berbasis BID seperti chart & judul tab Exness (tengah − spread/2). REST data-api.binance.vision + WebSocket data-stream.binance.vision.
  * - Rekam : semua candle 1m/5m disimpan di IndexedDB 'amatu-scalping' (hanya di perangkat ini) dan terus bertambah.
  * - Batas : Batas Atas/Bawah = puncak & lembah GELOMBANG terakhir (zigzag: berbalik ≥ r × ATR), struktur HH/HL/LH/LL.
  * - Setup : pola candle di zona gelombang (tolak, pin bar, engulfing, high wave, BOS/CHoCH) + konteks price action
@@ -29,9 +30,10 @@ const GAYA_WR = { winrate: 0.52, seimbang: 0.38, rr: 0 };
 const GAYA_URUT = { winrate: ['winrate', 'seimbang', 'rr'], seimbang: ['seimbang', 'rr'], rr: ['rr'] };
 const HOSTS = ['https://data-api.binance.vision/api/v3', 'https://api1.binance.com/api/v3', 'https://api2.binance.com/api/v3',
   'https://api3.binance.com/api/v3', 'https://api.binance.com/api/v3'];
-const WS_URL = 'wss://data-stream.binance.vision/stream?streams=btcusdt@kline_1s/paxgusdt@kline_1s/paxgusdt@bookTicker';
+const WS_URL = 'wss://data-stream.binance.vision/stream?streams=btcusdt@kline_1s/paxgusdt@kline_1s/paxgusdt@bookTicker/usdcusdt@bookTicker';
 
-const SET = { lot: 0.01, spread: { BTCUSDT: 6.4, XAUUSDm: 0.2 }, gaya: 'seimbang' };
+const SET = { lot: 0.01, spread: { BTCUSDT: 6.4, XAUUSDm: 0.24 }, gaya: 'seimbang' };
+const KAL = { BTCUSDT: null, XAUUSDm: null };   // kalibrasi ke harga Exness: BTC {d (USD)}, XAU {k (rasio)}
 let LIHAT = { sym: 'BTCUSDT', tf: '1m' };
 const STATUS = { ws: false, wsT: 0, rest: 0, galat: '', unduh: null };
 const DATA = new Map();   // 'SERI|tf' → Seri
@@ -381,8 +383,42 @@ async function ambilKurs() {
     const v = +d.rates.IDR; if (v > 5000 && v < 50000) { KURS = v; kvSet('kurs', { v, t: Date.now() }); }
   } catch (e) { /* tetap */ }
 }
+/** USDCUSDT lewat REST (awal & cadangan bila WebSocket diam) */
+async function ambilUsdc() {
+  const H = HARGA.USDCUSDT;
+  if (H && Date.now() - H.t < 60000) return;
+  try {
+    const d = await ambilJson(`${HOSTS[hostI]}/ticker/bookTicker?symbol=USDCUSDT`, 6000);
+    const b = +d.bidPrice, a = +d.askPrice;
+    if (b > 0.9 && a < 1.1) HARGA.USDCUSDT = { p: (b + a) / 2, t: Date.now(), bid: b, ask: a };
+  } catch (e) { /* pakai nilai lama */ }
+}
+/** Samakan dengan Exness: bid = harga Bid yang terlihat di terminal Exness saat ini. */
+function kalibrasi(sym, bid, reset) {
+  if (reset) { KAL[sym] = null; return { kal: null }; }
+  bid = +bid;
+  if (!(bid > 0)) return { galat: 'Angka harga tidak valid.' };
+  const exMid = bid + SET.spread[sym] / 2, raw = hargaKini(sym);
+  if (!raw) return { galat: 'Harga Binance belum tersedia, coba lagi sebentar.' };
+  if (sym === 'BTCUSDT') {
+    const d = exMid - raw * faktorUsd();
+    if (Math.abs(d) > raw * 0.02) return { galat: `Selisih ${Math.round(d)} terlalu besar — periksa angka (contoh 67306.76).` };
+    KAL.BTCUSDT = { d, t: Date.now(), bid };
+  } else {
+    const k = exMid / raw, kLama = RASIO.k || k;
+    if (Math.abs(k / kLama - 1) > 0.03) return { galat: 'Selisih terlalu besar — periksa angka (contoh 3883.075).' };
+    KAL.XAUUSDm = { k, t: Date.now(), bid, d: exMid - raw * kLama };
+  }
+  return { kal: KAL[sym] };
+}
 function lastClose(seri) { const S = DATA.get(seri + '|1m'); return S && S.n ? S.c[S.n - 1] : 0; }
-const skala = sym => sym === 'XAUUSDm' ? (RASIO.k || 1) : 1;
+/** faktor USD: Exness BTCUSD memakai dolar AS, Binance memakai USDT (USDCUSDT ≈ harga 1 USD dalam USDT) */
+function faktorUsd() { const u = HARGA.USDCUSDT; return u && u.p > 0.9 && u.p < 1.1 ? 1 / u.p : 1; }
+const skala = sym => sym === 'XAUUSDm' ? ((KAL.XAUUSDm && KAL.XAUUSDm.k) || RASIO.k || 1) : faktorUsd();
+/** geser harga tampilan: selisih kalibrasi Exness (BTC) − setengah spread (harga Bid, seperti di Exness) */
+const geserHarga = sym => (sym === 'BTCUSDT' && KAL.BTCUSDT ? KAL.BTCUSDT.d : 0) - SET.spread[sym] / 2;
+/** harga internal (Binance) → harga tampilan Exness Bid. Jarak/selisih cukup dikali skala(). */
+const hp = (sym, x) => x * skala(sym) + geserHarga(sym);
 const biayaInternal = sym => SET.spread[sym] / skala(sym);
 function hargaKini(sym) {
   const seri = INFO[sym].seri, H = HARGA[seri];
@@ -720,7 +756,8 @@ function hitungKebiasaan(sym) {
 // ------------------------------------------------------------------ posisi virtual (rekam sinyal live)
 function trJadi(An, x, sumber) {
   const S = An.S, k = skala(An.sym);
-  return { t0: S.t[x.i], t1: S.t[x.j] + S.ms, side: x.side, entry: x.entry * k, keluar: x.keluar * k, sl: x.sl * k, tp: x.tp * k,
+  const q = v => hp(An.sym, v);
+  return { t0: S.t[x.i], t1: S.t[x.j] + S.ms, side: x.side, entry: q(x.entry), keluar: q(x.keluar), sl: q(x.sl), tp: q(x.tp),
     hasil: ['', 'TP', 'SL', 'WKT'][x.cara], pnl: x.pnl * k, sumber, kode: An.cfg ? kodePola(An.cfg) : '' };
 }
 function bukaPosisi(An, i, st) {
@@ -729,14 +766,17 @@ function bukaPosisi(An, i, st) {
   const tp = hitungTp(cfg, side, entry, risk, st.lv);
   if (!(risk > 0) || side * (tp - entry) <= biayaInternal(An.sym)) return;
   An.aktif = { side, entry, sl, tp, t0: S.t[i], tE: S.t[i] + S.ms, lv: { wh: st.lv.wh, wl: st.lv.wl }, a: st.lv.a, k: skala(An.sym),
+    eD: hp(An.sym, entry), sD: hp(An.sym, sl), tD: hp(An.sym, tp),
     cfg: teksCfg(cfg), pola: namaPola(cfg), kode: kodePola(cfg) };
   kvSet('aktif|' + An.key, An.aktif);
-  kirim({ op: 'sinyal', jenis: 'buka', sym: An.sym, tf: An.tf, side, entry: entry * skala(An.sym), pola: namaPola(cfg) });
+  kirim({ op: 'sinyal', jenis: 'buka', sym: An.sym, tf: An.tf, side, entry: hp(An.sym, entry), pola: namaPola(cfg) });
 }
 function tutupPosisi(An, keluar, cara, t1) {
   const P = An.aktif; if (!P) return;
   const k = skala(An.sym), pnl = P.side * (keluar - P.entry) - biayaInternal(An.sym);
-  const x = { t0: P.t0, t1, side: P.side, entry: P.entry * k, keluar: keluar * k, sl: P.sl * k, tp: P.tp * k, hasil: cara, pnl: pnl * k, sumber: 'live', kode: P.kode || '' };
+  const q = v => hp(An.sym, v);
+  const x = { t0: P.t0, t1, side: P.side, entry: P.eD != null ? P.eD : q(P.entry), keluar: cara === 'TP' && P.tD != null ? P.tD : q(keluar), sl: P.sD != null ? P.sD : q(P.sl),
+    tp: P.tD != null ? P.tD : q(P.tp), hasil: cara, pnl: pnl * k, sumber: 'live', kode: P.kode || '' };
   An.jurnal.push(x); if (An.jurnal.length > 400) An.jurnal.splice(0, An.jurnal.length - 400);
   An.aktif = null;
   kvSet('jurnal|' + An.key, An.jurnal); kvSet('aktif|' + An.key, null);
@@ -793,20 +833,21 @@ function statusDetik(An) {
   if (INFO[sym].emas && !emasBuka(now)) { out.buka = false; out.bukaLagi = bukaBerikut(now); }
   if (!S.n) return out;
   const i = S.n - 1, p = hargaKini(sym) || S.c[i];
-  out.harga = p * k;
-  out.bar = { t: S.t[i], o: S.o[i] * k, h: S.h[i] * k, l: S.l[i] * k, c: S.c[i] * k, v: S.v[i] };
+  const q = v => hp(sym, v);
+  out.harga = q(p);
+  out.bar = { t: S.t[i], o: q(S.o[i]), h: q(S.h[i]), l: q(S.l[i]), c: q(S.c[i]), v: S.v[i] };
   const I = An.I;
   if (!I || I.n < 2) { if (!out.buka) out.keadaan = 'TUTUP'; return out; }
   const lv = levelDi(I, i), wh = lv.wh, wl = lv.wl, a = lv.a;
   if (!(wh > wl) || !(a > 0)) { if (!out.buka) out.keadaan = 'TUTUP'; return out; }
-  out.atas = wh * k; out.bawah = wl * k; out.atr = a * k; out.r = I.r; out.zona = ZONA * a * k;
+  out.atas = q(wh); out.bawah = q(wl); out.atr = a * k; out.r = I.r; out.zona = ZONA * a * k;
   out.tAtas = lv.whi >= 0 ? S.t[lv.whi] : 0; out.tBawah = lv.wli >= 0 ? S.t[lv.wli] : 0;
   const st = struktur(wh, wl, lv.wh2, lv.wl2);
   out.struktur = { st, lblA: wh > lv.wh2 ? 'HH' : wh < lv.wh2 ? 'LH' : 'H', lblB: wl > lv.wl2 ? 'HL' : wl < lv.wl2 ? 'LL' : 'L', ema: lv.up ? 1 : -1 };
   // kaki gelombang yang sedang berjalan (diperpanjang oleh candle berjalan)
   const z = I.akhir; let gP = z.extP, gI = Math.min(z.extI, i);
   if (z.dir === 1 && S.h[i] > gP) { gP = S.h[i]; gI = i; } else if (z.dir === -1 && S.l[i] < gP) { gP = S.l[i]; gI = i; }
-  out.gel = { dir: z.dir, p: gP * k, t: S.t[gI] };
+  out.gel = { dir: z.dir, p: q(gP), t: S.t[gI] };
   out.pos = (p - wl) / (wh - wl);
   out.jarak = { atas: (wh - p) * k, bawah: (p - wl) * k, atasA: (wh - p) / a, bawahA: (p - wl) / a };
   out.lebarA = (wh - wl) / a;
@@ -820,13 +861,13 @@ function statusDetik(An) {
   }
   const rinci = (side, entry, ph, pl) => {
     const sl = hitungSl(cfg, side, ph, pl, lv), risk = Math.abs(entry - sl), tp = hitungTp(cfg, side, entry, risk, lv);
-    return { side, entry: entry * k, sl: sl * k, tp: tp * k, rr: Math.abs(tp - entry) / (risk || 1), pTp: H && H.tpRate, eta: H && H.eta };
+    return { side, entry: q(entry), sl: q(sl), tp: q(tp), rr: Math.abs(tp - entry) / (risk || 1), pTp: H && H.tpRate, eta: H && H.eta };
   };
   if (!out.buka) { out.keadaan = 'TUTUP'; return out; }
   if (An.aktif) {
     const P = An.aktif, pl = P.side * (p - P.entry) - biayaInternal(sym);
     out.keadaan = 'POSISI'; out.arah = P.side;
-    out.aktif = { side: P.side, entry: P.entry * k, sl: P.sl * k, tp: P.tp * k, t0: P.t0, tE: P.tE, pl: pl * k,
+    out.aktif = { side: P.side, entry: P.eD != null ? P.eD : q(P.entry), sl: P.sD != null ? P.sD : q(P.sl), tp: P.tD != null ? P.tD : q(P.tp), t0: P.t0, tE: P.tE, pl: pl * k,
       prog: Math.max(-1, Math.min(1, P.side * (p - P.entry) / (P.side * (P.tp - P.entry) || 1))),
       progSl: Math.max(0, Math.min(1, P.side * (P.entry - p) / Math.abs(P.entry - P.sl || 1))), cfg: P.cfg, pola: P.pola,
       lewat: Math.floor((now - P.tE) / S.ms), maxb: MAXB[An.tf], pTp: H && H.tpRate, eta: H && H.eta };
@@ -890,12 +931,12 @@ function kirim(m) { self.postMessage(m); }
 function kirimRiwayat(sym, tf) {
   const An = AN.get(sym + '|' + tf); if (!An) return;
   An.segar();
-  const S = An.S, n = S.n, k = skala(sym), a = Math.max(0, n - TAMPIL), m = n - a;
+  const S = An.S, n = S.n, k = skala(sym), gs = geserHarga(sym), a = Math.max(0, n - TAMPIL), m = n - a;
   const t = new Float64Array(m), o = new Float64Array(m), h = new Float64Array(m), l = new Float64Array(m), c = new Float64Array(m), v = new Float64Array(m);
   const U = new Float64Array(m).fill(NaN), L = new Float64Array(m).fill(NaN);
   for (let i = 0; i < m; i++) {
-    const j = a + i; t[i] = S.t[j]; o[i] = S.o[j] * k; h[i] = S.h[j] * k; l[i] = S.l[j] * k; c[i] = S.c[j] * k; v[i] = S.v[j];
-    if (An.I && j < An.I.n) { U[i] = An.I.WH[j] * k; L[i] = An.I.WL[j] * k; }
+    const j = a + i; t[i] = S.t[j]; o[i] = S.o[j] * k + gs; h[i] = S.h[j] * k + gs; l[i] = S.l[j] * k + gs; c[i] = S.c[j] * k + gs; v[i] = S.v[j];
+    if (An.I && j < An.I.n) { U[i] = An.I.WH[j] * k + gs; L[i] = An.I.WL[j] * k + gs; }
   }
   kirim({ op: 'riwayat', sym, tf, kunci: sym + '|' + tf + '|' + (m ? t[0] : 0), bars: { t, o, h, l, c, v, U, L }, uji: An.uji, jurnal: An.jurnal.slice(-60), piv: pivotTampil(An, a) });
 }
@@ -903,7 +944,7 @@ function kirimRiwayat(sym, tf) {
 function pivotTampil(An, dari) {
   if (!An.I) return [];
   const S = An.S, k = skala(An.sym), out = [];
-  for (const x of An.I.piv) if (x.i >= dari && x.i < S.n) out.push({ t: S.t[x.i], p: x.p * k, tipe: x.tipe, lbl: x.lbl });
+  for (const x of An.I.piv) if (x.i >= dari && x.i < S.n) out.push({ t: S.t[x.i], p: hp(An.sym, x.p), tipe: x.tipe, lbl: x.lbl });
   return out;
 }
 function kirimAnalisis(sym, tf) {
@@ -937,7 +978,7 @@ function tiapDetik() {
   }
   const An = AN.get(LIHAT.sym + '|' + LIHAT.tf);
   const harga = {};
-  for (const s of SYMS) harga[s] = { p: hargaKini(s) * skala(s), ubah: ubah24(s), lencana: lencana(s, LIHAT.tf), buka: !INFO[s].emas || emasBuka(kini()) };
+  for (const s of SYMS) harga[s] = { p: hp(s, hargaKini(s)), ubah: ubah24(s), lencana: lencana(s, LIHAT.tf), buka: !INFO[s].emas || emasBuka(kini()), kal: KAL[s] };
   const wsHidup = STATUS.ws && Date.now() - STATUS.wsT < 8000;
   kirim({ op: 'detik', s: An ? statusDetik(An) : null, harga, kurs: KURS,
     feed: { ws: wsHidup, rest: STATUS.rest, galat: STATUS.galat, unduh: STATUS.unduh, rasio: RASIO.t ? RASIO.k : null } });
@@ -974,8 +1015,9 @@ async function rekonsiliasi(tf, tutup) {
 function kirimBar(An, tutup) {
   const S = An.S, k = skala(An.sym), i = S.cari(tutup);
   if (i >= S.n || S.t[i] !== tutup) return;
-  kirim({ op: 'bar', sym: An.sym, tf: An.tf, bar: { t: S.t[i], o: S.o[i] * k, h: S.h[i] * k, l: S.l[i] * k, c: S.c[i] * k, v: S.v[i] },
-    U: An.I && i < An.I.n ? An.I.WH[i] * k : NaN, L: An.I && i < An.I.n ? An.I.WL[i] * k : NaN, jurnal: An.jurnal.slice(-60), aktif: !!An.aktif,
+  const q = v => hp(An.sym, v);
+  kirim({ op: 'bar', sym: An.sym, tf: An.tf, bar: { t: S.t[i], o: q(S.o[i]), h: q(S.h[i]), l: q(S.l[i]), c: q(S.c[i]), v: S.v[i] },
+    U: An.I && i < An.I.n ? q(An.I.WH[i]) : NaN, L: An.I && i < An.I.n ? q(An.I.WL[i]) : NaN, jurnal: An.jurnal.slice(-60), aktif: !!An.aktif,
     piv: pivotTampil(An, Math.max(0, S.n - TAMPIL)) });
 }
 async function simpanSemua() { for (const S of DATA.values()) await simpanSeri(S); }
@@ -1012,6 +1054,7 @@ async function mulai() {
   for (const S of DATA.values()) await pangkasSeri(S);
   for (const sym of SYMS) for (const tf of TFS) AN.set(sym + '|' + tf, new Analisis(sym, tf));
   sambungWs();
+  await ambilUsdc(); setInterval(ambilUsdc, 60000);
   setInterval(denyut, 200);
   ambilKurs(); setInterval(ambilKurs, 6 * JAM);
   setInterval(spotEmas, 30000);
@@ -1079,6 +1122,10 @@ self.onmessage = async ev => {
     } else if (m.op === 'analisis-ulang') {
       const An = AN.get(m.sym + '|' + m.tf);
       if (An && An.siap) { await siapkan(An, { paksa: true }); kirim({ op: 'analisis-selesai', sym: m.sym, tf: m.tf }); }
+    } else if (m.op === 'kalibrasi') {
+      const r = kalibrasi(m.sym, m.bid, m.reset);
+      kirim({ op: 'kalibrasi-ok', sym: m.sym, kal: r.kal, galat: r.galat || '' });
+      if (!r.galat) { kirimRiwayat(LIHAT.sym, LIHAT.tf); kirimAnalisis(LIHAT.sym, LIHAT.tf); }
     } else if (m.op === 'hapus') {
       await hapusSemua(); kirim({ op: 'terhapus' });
     }
@@ -1090,6 +1137,7 @@ function setel(s, ulang) {
   if (s.lot > 0) SET.lot = +s.lot;
   if (s.spread) for (const k of SYMS) if (s.spread[k] >= 0) SET.spread[k] = +s.spread[k];
   if (s.gaya && GAYA_WR[s.gaya] != null) SET.gaya = s.gaya;
+  if (s.kal) for (const k of SYMS) KAL[k] = s.kal[k] && (s.kal[k].d != null || s.kal[k].k) ? s.kal[k] : null;
   if (!ulang || JSON.stringify(SET) === lama) return;
   clearTimeout(setelJalan);
   setelJalan = setTimeout(async () => {     // gaya / spread berubah → pilih ulang strategi (yang dilihat dulu)

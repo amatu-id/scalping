@@ -35,6 +35,29 @@ input { font: inherit; color: inherit; }
 .pair .pb { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; display: none; }
 .pair .pb.sell { display: block; background: var(--dn); } .pair .pb.buy { display: block; background: var(--up); }
 .pair.tutup .pp { color: var(--mu); }
+.pair .pk { position: absolute; left: 50%; bottom: -1px; transform: translateX(-50%); height: 2px; width: 28px; border-radius: 2px; background: var(--fa); opacity: .7; }
+.pair .pk.ok { background: var(--up); opacity: 1; }
+.pair .pk.lama { background: var(--am); opacity: 1; }
+
+/* banner kalibrasi Exness di chart */
+.info-kal { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-radius: 10px;
+  background: rgba(20, 26, 36, .95); border: 1px solid rgba(245, 176, 65, .45); color: var(--tx2); font-size: 12.5px; white-space: nowrap; max-width: calc(100% - 24px); }
+.info-kal span { overflow: hidden; text-overflow: ellipsis; }
+.info-kal button { height: 26px; padding: 0 12px; border-radius: 7px; background: var(--am); color: #2a1d00; font-weight: 700; font-size: 12px; flex: none; }
+.info-kal button.x { background: none; color: var(--mu); padding: 0 6px; font-size: 16px; }
+
+/* setelan: samakan dengan Exness */
+.kal { padding: 4px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.kal h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 700; color: var(--tx); }
+.kal .note { margin: 0 0 8px; }
+.kal-row { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 6px 0; }
+.kal-n { font-weight: 700; font-size: 12px; }
+.kal-row input { height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line2); background: var(--bg2); min-width: 0; font-variant-numeric: tabular-nums; }
+.kal-row input:focus { outline: 2px solid rgba(245, 176, 65, .5); outline-offset: 0; }
+.kal-s { grid-column: 2 / -1; font-size: 11px; color: var(--mu); line-height: 1.4; }
+.kal-s.ok { color: var(--up); } .kal-s.lama { color: var(--am); }
+.kal-s .link { display: inline; margin: 0; font-size: 11px; }
+.btn.sm { height: 32px; padding: 0 12px; font-size: 12px; background: var(--am); color: #2a1d00; }
 .seg { position: relative; display: inline-flex; padding: 3px; gap: 2px; border-radius: 9px; background: var(--card); border: 1px solid var(--line); }
 .seg button { height: 26px; padding: 0 12px; border-radius: 6px; color: var(--mu); font-weight: 600; font-size: 12.5px; transition: background .15s, color .15s; }
 .seg button:hover { color: var(--tx); }
@@ -229,7 +252,7 @@ input { font: inherit; color: inherit; }
 
 /* ------------------------------------------------ popover, toast, tip */
 .pop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(5, 7, 10, .55); padding: 16px; }
-.pop-card { width: min(400px, 100%); background: var(--card); border: 1px solid var(--line2); border-radius: 14px; padding: 14px 16px 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
+.pop-card { width: min(420px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; background: var(--card); border: 1px solid var(--line2); border-radius: 14px; padding: 14px 16px 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); }
 .pop-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
 .fld { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .fld small { color: var(--mu); }

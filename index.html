@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="id" data-web="1b40b49db0a4">
+<html lang="id" data-web="a98f64bd7683">
 <head>
 <meta charset="utf-8">
 <script src="/amatu.js"></script>
@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
-<link rel="stylesheet" href="app.css?v=1b40b49db0a4">
+<link rel="stylesheet" href="app.css?v=a98f64bd7683">
 </head>
 <body>
 <svg width="0" height="0" class="defs" aria-hidden="true">
@@ -29,8 +29,8 @@
       <b>Scalping</b>
     </div>
     <nav class="pairs" id="pairs" aria-label="Pasangan">
-      <button class="pair" data-sym="BTCUSDT"><span class="pn">BTC<small>USDT</small></span><span class="pp" data-px>–</span><span class="pc" data-chg></span><i class="pb" data-badge></i></button>
-      <button class="pair" data-sym="XAUUSDm"><span class="pn">XAU<small>USDm</small></span><span class="pp" data-px>–</span><span class="pc" data-chg></span><i class="pb" data-badge></i></button>
+      <button class="pair" data-sym="BTCUSDT" data-tip="harga"><span class="pn">BTC<small>USDm</small></span><span class="pp" data-px>–</span><span class="pc" data-chg></span><i class="pk" data-kal></i><i class="pb" data-badge></i></button>
+      <button class="pair" data-sym="XAUUSDm" data-tip="harga"><span class="pn">XAU<small>USDm</small></span><span class="pp" data-px>–</span><span class="pc" data-chg></span><i class="pk" data-kal></i><i class="pb" data-badge></i></button>
     </nav>
     <div class="seg" id="tf" role="tablist" aria-label="Timeframe">
       <button data-tf="1m">1m</button><button data-tf="5m">5m</button>
@@ -49,6 +49,7 @@
       <div class="hitung" id="hitung" data-tip="hitung"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 4 6.5 4 9s-4 4-4 9M17 3c0 5-4 6.5-4 9s4 4 4 9"/></svg><b id="hitung-v">–</b></div>
       <div class="muat" id="muat"><i class="spin"></i><span id="muat-t">Memuat riwayat pasar…</span></div>
       <div class="info-tutup hidden" id="tutup"></div>
+      <div class="info-kal hidden" id="info-kal"><span id="info-kal-t"></span><button id="info-kal-b">Samakan</button><button class="x" id="info-kal-x" aria-label="Tutup">×</button></div>
     </section>
 
     <section class="keb" id="keb">
@@ -155,8 +156,14 @@
 <div class="pop hidden" id="setelan" role="dialog" aria-label="Setelan">
   <div class="pop-card">
     <header><b>Setelan</b><button class="ic" id="set-tutup" aria-label="Tutup"><svg><use href="#i-x"/></svg></button></header>
+    <section class="kal" id="kal">
+      <h3>Samakan harga dengan Exness</h3>
+      <p class="note">Buka terminal Exness, lihat harga <b>Bid</b> (tombol Sell / judul tab "BTC Bid …"), ketik di sini lalu tekan Samakan. Chart, batas gelombang, entry/TP/SL lalu mengikuti harga Exness.</p>
+      <div class="kal-row" data-sym="BTCUSDT"><span class="kal-n">BTCUSDm</span><input type="text" inputmode="decimal" placeholder="Bid Exness, mis. 67306.76" autocomplete="off"><button class="btn sm">Samakan</button><small class="kal-s"></small></div>
+      <div class="kal-row" data-sym="XAUUSDm"><span class="kal-n">XAUUSDm</span><input type="text" inputmode="decimal" placeholder="Bid Exness, mis. 3883.075" autocomplete="off"><button class="btn sm">Samakan</button><small class="kal-s"></small></div>
+    </section>
     <label class="fld"><span>Lot <small>(untuk hitungan Rp)</small></span><input id="set-lot" type="number" min="0.01" step="0.01" inputmode="decimal"></label>
-    <label class="fld"><span>Spread BTCUSDm <small>(USD)</small></span><input id="set-sp-btc" type="number" min="0" step="0.1" inputmode="decimal"></label>
+    <label class="fld"><span>Spread BTCUSDm <small>(USD, lihat selisih Buy−Sell di Exness)</small></span><input id="set-sp-btc" type="number" min="0" step="0.1" inputmode="decimal"></label>
     <label class="fld"><span>Spread XAUUSDm <small>(USD)</small></span><input id="set-sp-xau" type="number" min="0" step="0.01" inputmode="decimal"></label>
     <label class="fld cek"><input id="set-bunyi" type="checkbox"><span>Bunyi saat sinyal muncul / selesai</span></label>
     <p class="note" id="set-info"></p>
@@ -168,6 +175,6 @@
 <div class="tip hidden" id="tip"></div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=1b40b49db0a4"></script>
+<script src="app.js?v=a98f64bd7683"></script>
 </body>
 </html>

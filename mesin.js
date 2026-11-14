@@ -38,18 +38,24 @@ const HZ = { '1m': 15, '5m': 12 };                     // jendela peluang sentuh
 const TAMPIL = 1500;
 const R_BAKU = 2.5;   // ukuran gelombang bawaan (× ATR) sebelum optimizer memilih
 const GRID = { r: [1.5, 2.5, 4], p: ['tolak', 'pin', 'engulf', 'hw', 'bos'], ctx: ['none', 'with', 'against', 'range', 'ema+', 'ema-', 'with+'], s: [0.1, 0.3, 0.6], tp: ['R1', 'R1.5', 'R2', 'wave', 'mid'] };
-const ALGO = 4;   // naikkan bila grid / aturan uji berubah → hasil tersimpan diuji ulang
+const ALGO = 5;   // naikkan bila grid / aturan uji berubah → hasil tersimpan diuji ulang
 const JENDELA = 120;               // hari riwayat untuk memilih kombinasi tiap hari (uji maju)
 const TREN = { f: 50, s: 200 };    // tren 1 jam: EMA50 vs EMA200 dari harga per jam (dihitung pada candle TF dengan periode × 60/menit)
 const IKUT = { '1m': '5m' };       // TF yang memakai sinyal TF lain (1m rugi setelah spread di uji Exness → ikut 5m)
 const PF_TERBUKTI = 1.05, N_TERBUKTI = 20;   // syarat uji maju agar sinyal live dibuka
-const GAYA_WR = { winrate: 0.52, seimbang: 0.38, rr: 0 };
-const GAYA_URUT = { winrate: ['winrate', 'seimbang', 'rr'], seimbang: ['seimbang', 'rr'], rr: ['rr'] };
+/** PANTUL TREN (winrate tinggi): beli koreksi saat tren 1 jam naik / jual pantulan saat tren turun, TP kecil (ATR), SL lebar, batas waktu.
+ *  set = [cara ukur koreksi, nilai]: ema = jarak dari EMA20 (×ATR), rsi = RSI(3) ekstrem, don = posisi di rentang N candle (q = 10% ujung).
+ *  k = konfirmasi (0 tanpa, 1 candle berbalik, 2 tutup melewati high/low candle sebelumnya). jam = filter sesi (dari studi kebiasaan per jam). */
+const PANTUL = { set: [['ema', 1], ['ema', 2], ['ema', 3], ['rsi', 5], ['rsi', 10], ['rsi', 20], ['don', 20, 0.1], ['don', 50, 0.1]], k: [0, 1, 2],
+  tp: [0.75, 1, 1.5, 'ema'], sl: [2, 3, 4], mb: [24, 48], jam: ['semua', 'luarUS', 'asia'] };
+// winrate: kombinasi harus menang ≥75% di jendela seleksi agar hasil uji maju (data baru) tetap di atas 70%; tanpa cadangan gaya lain
+const GAYA_WR = { winrate: 0.75, seimbang: 0.38, rr: 0 };
+const GAYA_URUT = { winrate: ['winrate'], seimbang: ['seimbang', 'rr'], rr: ['rr'] };
 const HOSTS = ['https://data-api.binance.vision/api/v3', 'https://api1.binance.com/api/v3', 'https://api2.binance.com/api/v3',
   'https://api3.binance.com/api/v3', 'https://api.binance.com/api/v3'];
 const WS_URL = 'wss://data-stream.binance.vision/stream?streams=btcusdt@kline_1s/paxgusdt@kline_1s/paxgusdt@bookTicker/usdcusdt@bookTicker';
 
-const SET = { lot: 0.01, spread: { BTCUSDT: 6.4, XAUUSDm: 0.24 }, gaya: 'seimbang' };
+const SET = { lot: 0.01, spread: { BTCUSDT: 6.4, XAUUSDm: 0.24 }, gaya: 'winrate', paksa: false };   // paksa = buka sinyal walau uji maju belum terbukti
 const KAL = { BTCUSDT: null, XAUUSDm: null };   // kalibrasi ke harga Exness: BTC {d (USD)}, XAU {k (rasio)}
 let LIHAT = { sym: 'BTCUSDT', tf: '1m' };
 const STATUS = { ws: false, wsT: 0, rest: 0, galat: '', unduh: null };
@@ -544,8 +550,60 @@ function hitungInd(S, r) {
       }
     }
   }
-  return { A, E50, E200, TJ, WH, WL, WH2, WL2, WHi, WLi, piv, r, n, versi: S.versi,
+  return { A, E50, E200, TJ, P: indPantul(S), WH, WL, WH2, WL2, WHi, WLi, piv, r, n, versi: S.versi,
     akhir: { wh: lH, wl: lL, wh2: lH2, wl2: lL2, whi: lHi, wli: lLi, dir, extP: dir === 1 ? upP : dnP, extI: dir === 1 ? upI : dnI } };
+}
+/** indikator keluarga PANTUL: EMA20, RSI(3), rentang 20/50 candle (high/low), jam WIB saat candle tutup */
+function indPantul(S) {
+  const n = S.n, E20 = new Float64Array(n), R3 = new Float64Array(n), JM = new Int8Array(n), k = 2 / 21, ms = S.ms || TF_MS[S.tf];
+  let g = 0, l = 0;
+  for (let i = 0; i < n; i++) {
+    E20[i] = i ? S.c[i] * k + E20[i - 1] * (1 - k) : S.c[i];
+    const d = i ? S.c[i] - S.c[i - 1] : 0, up = Math.max(d, 0), dn = Math.max(-d, 0);
+    if (i <= 3) { g += up / 3; l += dn / 3; } else { g = (g * 2 + up) / 3; l = (l * 2 + dn) / 3; }
+    R3[i] = l === 0 ? (g === 0 ? 50 : 100) : 100 - 100 / (1 + g / l);
+    JM[i] = Math.floor(((S.t[i] + ms + WIB) % HARI + HARI) % HARI / JAM);
+  }
+  const ekstrem = (N, atas) => { const o = new Float64Array(n), q = [], x = atas ? S.h : S.l;
+    for (let i = 0; i < n; i++) { while (q.length && (atas ? x[q[q.length - 1]] <= x[i] : x[q[q.length - 1]] >= x[i])) q.pop(); q.push(i); if (q[0] <= i - N) q.shift(); o[i] = x[q[0]]; } return o; };
+  return { E20, R3, JM, H20: ekstrem(20, true), L20: ekstrem(20, false), H50: ekstrem(50, true), L50: ekstrem(50, false) };
+}
+/** syarat koreksi PANTUL di candle i untuk sisi tren t (tanpa konfirmasi) */
+function koreksiPantul(S, I, cfg, i, t) {
+  const P = I.P, a = I.A[i], C = S.c[i];
+  if (!(a > 0) || !t) return false;
+  if (cfg.m === 'ema') return t > 0 ? C <= P.E20[i] - cfg.v * a : C >= P.E20[i] + cfg.v * a;
+  if (cfg.m === 'rsi') return t > 0 ? P.R3[i] <= cfg.v : P.R3[i] >= 100 - cfg.v;
+  const hh = cfg.v === 20 ? P.H20[i] : P.H50[i], ll = cfg.v === 20 ? P.L20[i] : P.L50[i], pos = (C - ll) / (hh - ll || 1e-12);
+  return t > 0 ? pos <= cfg.q : pos >= 1 - cfg.q;
+}
+const konfirmPantul = (S, cfg, i, t) => cfg.k === 0 || (cfg.k === 1 ? (t > 0 ? S.c[i] > S.o[i] : S.c[i] < S.o[i]) : (t > 0 ? S.c[i] > S.h[i - 1] : S.c[i] < S.l[i - 1]));
+const lolosJam = (cfg, jm) => cfg.jam === 'luarUS' ? jm < 19 : cfg.jam === 'asia' ? jm >= 6 && jm < 14 : true;
+/** kejadian PANTUL (koreksi + konfirmasi, searah tren 1 jam) di candle [i0, i1−1); filter jam & TP/SL di rencanaTrade */
+function eventPantul(S, I, cfg, i0, i1) {
+  const ev = [];
+  for (let i = Math.max(i0, 220); i < i1 - 1; i++) { const t = I.TJ[i]; if (t && koreksiPantul(S, I, cfg, i, t) && konfirmPantul(S, cfg, i, t)) ev.push({ i, side: t }); }
+  return ev;
+}
+const eventCfg = (S, I, cfg, i0, i1) => cfg.f === 'pantul' ? eventPantul(S, I, cfg, i0, i1) : eventPola(S, I, cfg.p, i0, i1);
+const maxbCfg = (cfg, tf) => (cfg && cfg.mb) || MAXB[tf];
+/** SL/TP untuk kejadian e (harga entry = penutupan candle e.i). null = tidak diambil (konteks/jam/target terlalu dekat). */
+function rencanaTrade(cfg, S, I, e, biaya) {
+  const i = e.i, side = e.side, entry = S.c[i];
+  let sl, tp;
+  if (cfg.f === 'pantul') {
+    const a = I.A[i]; if (!(a > 0) || !lolosJam(cfg, I.P.JM[i])) return null;
+    sl = entry - side * cfg.sl * a;
+    tp = cfg.tp === 'ema' ? I.P.E20[i] : entry + side * cfg.tp * a;
+    if (side * (tp - entry) < 0.25 * a) return null;
+  } else {
+    if (!lolosKonteks(cfg.ctx, side, e.lv)) return null;
+    sl = hitungSl(cfg, side, e.ph, e.pl, e.lv);
+    tp = hitungTp(cfg, side, entry, Math.abs(entry - sl), e.lv);
+  }
+  const risk = Math.abs(entry - sl);
+  if (!(risk > 0) || side * (tp - entry) <= biaya) return null;
+  return { entry, sl, tp, risk };
 }
 /** +1 = naik (HH & HL), −1 = turun (LH & LL), 0 = datar / campuran */
 const struktur = (wh, wl, wh2, wl2) => (wh > wh2 && wl > wl2) ? 1 : (wh < wh2 && wl < wl2) ? -1 : 0;
@@ -618,6 +676,12 @@ function hitungTp(cfg, side, entry, risk, lv) {
 }
 /** setup lengkap di candle i (pola + konteks) → {side, ph, pl, lv} | {tolak:true, side} | null */
 function cekSetup(cfg, S, I, i) {
+  if (cfg.f === 'pantul') {
+    const lv = levelDi(I, i), t = I.TJ[Math.min(i, I.n - 1)];
+    if (!t || i >= I.n || !koreksiPantul(S, I, cfg, i, t) || !konfirmPantul(S, cfg, i, t)) return null;
+    if (!lolosJam(cfg, I.P.JM[i])) return { tolak: true, side: t, lv, jam: true };
+    return { side: t, ph: S.h[i], pl: S.l[i], lv };
+  }
   const lv = levelDi(I, i), r = polaDi(S, i, cfg.p, lv);
   if (!r) return null;
   if (!lolosKonteks(cfg.ctx, r[0], lv)) return { tolak: true, side: r[0], lv };
@@ -634,21 +698,18 @@ function eventPola(S, I, p, i0, i1) {
 }
 /** Uji setup pada candle [i0, i1). folds = jumlah periode. catat = simpan daftar trade. Satu posisi pada satu waktu. */
 function uji(S, I, cfg, biaya, i0, i1, folds, catat, ev) {
-  ev = ev || eventPola(S, I, cfg.p, i0, i1);
+  ev = ev || eventCfg(S, I, cfg, i0, i1);
   const F = [];
   for (let f = 0; f < folds; f++) F.push({ n: 0, w: 0, tp: 0, sl: 0, gp: 0, gl: 0, s: 0, sa: 0, bTp: 0 });
-  const tr = catat ? [] : null, maxb = MAXB[S.tf], span = Math.max(1, i1 - i0);
+  const tr = catat ? [] : null, maxb = maxbCfg(cfg, S.tf), span = Math.max(1, i1 - i0);
   const H = S.h, Lo = S.l, C = S.c, O = S.o;
   let bebas = 0;
   for (const e of ev) {
     const i = e.i;
     if (i < bebas || i < i0 || i >= i1 - 1) continue;
-    const side = e.side, lv = e.lv;
-    if (!lolosKonteks(cfg.ctx, side, lv)) continue;
-    const entry = C[i], sl = hitungSl(cfg, side, e.ph, e.pl, lv), risk = Math.abs(entry - sl);
-    if (!(risk > 0)) continue;
-    const tp = hitungTp(cfg, side, entry, risk, lv);
-    if (side * (tp - entry) <= biaya) continue;
+    const side = e.side, rc = rencanaTrade(cfg, S, I, e, biaya);
+    if (!rc) continue;
+    const { entry, sl, tp, risk } = rc;
     let cara = 0, keluar = 0, j = i + 1;
     const jEnd = i + maxb;
     for (; j <= jEnd && j < i1; j++) {
@@ -656,7 +717,7 @@ function uji(S, I, cfg, biaya, i0, i1, folds, catat, ev) {
       if (side < 0 ? Lo[j] <= tp : H[j] >= tp) { keluar = tp; cara = 1; break; }
     }
     if (!cara) { if (j > jEnd) { j = jEnd; keluar = C[j]; cara = 3; } else break; }
-    const pnl = side * (keluar - entry) - biaya, a = lv.a;
+    const pnl = side * (keluar - entry) - biaya, a = I.A[i] || 1;
     const f = F[Math.min(folds - 1, Math.floor((i - i0) / span * folds))];
     f.n++; if (pnl > 0) { f.w++; f.gp += pnl; } else f.gl -= pnl;
     if (cara === 1) { f.tp++; f.bTp += j - i; } else if (cara === 2) f.sl++;
@@ -669,17 +730,14 @@ function uji(S, I, cfg, biaya, i0, i1, folds, catat, ev) {
 /** seperti uji(), tetapi hasil dijumlah per HARI (UTC) ke ember kumulatif B: tiap hari 5 angka [n, ΣR, untung, rugi, menang],
  *  B[(d+1)*5 + k] = jumlah sampai dengan hari d (d relatif d0). R = hasil ÷ risiko (setelah spread). */
 function ujiEmber(S, I, cfg, biaya, i1, ev, B, d0, D) {
-  const maxb = MAXB[S.tf], H = S.h, Lo = S.l, C = S.c, O = S.o;
+  const maxb = maxbCfg(cfg, S.tf), H = S.h, Lo = S.l, C = S.c, O = S.o;
   let bebas = 0;
   for (const e of ev) {
     const i = e.i;
     if (i < bebas || i >= i1 - 1) continue;
-    const side = e.side, lv = e.lv;
-    if (!lolosKonteks(cfg.ctx, side, lv)) continue;
-    const entry = C[i], sl = hitungSl(cfg, side, e.ph, e.pl, lv), risk = Math.abs(entry - sl);
-    if (!(risk > 0)) continue;
-    const tp = hitungTp(cfg, side, entry, risk, lv);
-    if (side * (tp - entry) <= biaya) continue;
+    const side = e.side, rc = rencanaTrade(cfg, S, I, e, biaya);
+    if (!rc) continue;
+    const { entry, sl, tp, risk } = rc;
     let cara = 0, keluar = 0, j = i + 1;
     const jEnd = i + maxb;
     for (; j <= jEnd && j < i1; j++) {
@@ -727,12 +785,23 @@ async function ujiMaju(S, biaya, gaya, jeda) {
       const ev = eventPola(S, I, p, 0, i1);
       for (const ctx of GRID.ctx) for (const s of GRID.s) for (const tp of GRID.tp) {
         if (p === 'bos' && tp === 'mid') continue;
-        const cfg = { r, p, ctx, s, tp }, B = new Float64Array((D + 1) * 5);
+        const cfg = { r, p, ctx, s, tp }, B = new Float32Array((D + 1) * 5);
         ujiEmber(S, I, cfg, biaya, i1, ev, B, d0, D);
         cfgs.push({ cfg, B });
         if (jeda && ++k % 120 === 0) await tidur(0);
       }
       if (jeda) await tidur(0);
+    }
+  }
+  // keluarga PANTUL TREN (winrate tinggi) — tidak bergantung ukuran gelombang, pakai indikator r baku
+  const IP = Is[R_BAKU] || hitungInd(S, R_BAKU); Is[R_BAKU] = IP;
+  for (const st of PANTUL.set) for (const kf of PANTUL.k) {
+    const dasar = { f: 'pantul', m: st[0], v: st[1], q: st[2] || 0, k: kf, r: R_BAKU }, ev = eventPantul(S, IP, dasar, 0, i1);
+    for (const tp of PANTUL.tp) for (const sl of PANTUL.sl) for (const mb of PANTUL.mb) for (const jam of PANTUL.jam) {
+      const cfg = { ...dasar, tp, sl, mb, jam }, B = new Float32Array((D + 1) * 5);
+      ujiEmber(S, IP, cfg, biaya, i1, ev, B, d0, D);
+      cfgs.push({ cfg, B });
+      if (jeda && ++k % 120 === 0) await tidur(0);
     }
   }
   // pilihan per hari (dengan cadangan gaya bila gaya utama tidak menemukan kombinasi lolos)
@@ -751,17 +820,18 @@ async function ujiMaju(S, biaya, gaya, jeda) {
   for (let d = L; d < D; d++) if (pilih[d] >= 0) { if (!hariDari.has(pilih[d])) hariDari.set(pilih[d], new Set()); hariDari.get(pilih[d]).add(d); }
   let oos = [];
   for (const [q, hs] of hariDari) {
-    const c = cfgs[q], I = Is[c.cfg.r], kd = kodePola(c.cfg);
+    const c = cfgs[q], I = Is[c.cfg.r] || Is[R_BAKU], kd = kodePola(c.cfg);
     for (const x of uji(S, I, c.cfg, biaya, 0, i1, 1, true).tr) {
       if (hs.has(Math.floor(S.t[x.i] / HARI) - d0)) oos.push({ t0: S.t[x.i], t1: S.t[x.j] + S.ms, i: x.i, j: x.j, side: x.side, entry: x.entry, keluar: x.keluar,
-        sl: x.sl, tp: x.tp, cara: x.cara, pnl: x.pnl, r: x.r, a: x.a, kd, bTp: x.cara === 1 ? x.j - x.i : 0 });
+        sl: x.sl, tp: x.tp, cara: x.cara, pnl: x.pnl, r: x.r, a: x.a, kd, mb: maxbCfg(c.cfg, S.tf), bTp: x.cara === 1 ? x.j - x.i : 0 });
     }
   }
   oos.sort((a, b) => a.i - b.i);
   let bebas = 0; oos = oos.filter(x => { if (x.i < bebas) return false; bebas = x.j + 1; return true; });
   for (const x of oos) { delete x.i; delete x.j; }
   const hariIni = pilih[D - 1];
-  return { cfg: hariIni >= 0 ? cfgs[hariIni].cfg : null, gayaDipakai: gayaH[D - 1], oos, L, D, hariOos: Math.max(0, D - L), diuji: cfgs.length,
+  return { cfg: hariIni >= 0 ? cfgs[hariIni].cfg : null, gayaDipakai: gayaH[D - 1], oos, L, D, d0, hariOos: Math.max(0, D - L), diuji: cfgs.length,
+    harian: Array.from(pilih, q => q >= 0 ? cfgs[q].cfg : null),
     ganti: new Set([...pilih].filter(q => q >= 0)).size };
 }
 function jumlah(F) {
@@ -782,9 +852,19 @@ function skor(F, gaya, minN) {
 const NAMA_POLA = { tolak: 'Tolak', pin: 'Pin bar', engulf: 'Engulfing', hw: 'High wave', bos: 'BOS' };
 const KODE_POLA = { tolak: 'TOL', pin: 'PIN', engulf: 'ENG', hw: 'HW', bos: 'BOS' };
 const NAMA_KTX = { none: '', with: 'searah struktur', against: 'melawan struktur', range: 'saat struktur datar', 'ema+': 'searah tren EMA', 'ema-': 'melawan tren EMA', 'with+': 'searah struktur & EMA' };
-const namaPola = cfg => cfg.p === 'bos' && cfg.ctx === 'against' ? 'CHoCH' : NAMA_POLA[cfg.p];
-const kodePola = cfg => cfg.p === 'bos' && cfg.ctx === 'against' ? 'CHoCH' : KODE_POLA[cfg.p];
+const namaPola = cfg => cfg.f === 'pantul' ? 'Pantul tren' : cfg.p === 'bos' && cfg.ctx === 'against' ? 'CHoCH' : NAMA_POLA[cfg.p];
+const kodePola = cfg => cfg.f === 'pantul' ? 'PNT' : cfg.p === 'bos' && cfg.ctx === 'against' ? 'CHoCH' : KODE_POLA[cfg.p];
+const angkaId = x => String(x).replace('.', ',');
+const TEKS_JAM = { semua: '', luarUS: 'di luar sesi AS (19–24 WIB)', asia: 'hanya sesi Asia (06–14 WIB)' };
+function teksPantul(cfg) {
+  const kor = cfg.m === 'ema' ? `koreksi ≥ ${angkaId(cfg.v)} ATR dari EMA20` : cfg.m === 'rsi' ? `RSI(3) ≤ ${cfg.v} saat beli / ≥ ${100 - cfg.v} saat jual`
+    : `harga di ${Math.round(cfg.q * 100)}% ujung rentang ${cfg.v} candle`;
+  const konf = ['tanpa konfirmasi', 'candle berbalik arah', 'tutup melewati high/low candle sebelumnya'][cfg.k];
+  const tp = cfg.tp === 'ema' ? 'TP kembali ke EMA20' : `TP ${angkaId(cfg.tp)} ATR`;
+  return `Pantul searah tren 1 jam: beli koreksi saat tren naik, jual pantulan saat tren turun · ${kor} · ${konf} · ${tp} · SL ${cfg.sl} ATR · maks ${cfg.mb} candle${TEKS_JAM[cfg.jam] ? ' · ' + TEKS_JAM[cfg.jam] : ''}`;
+}
 function teksCfg(cfg) {
+  if (cfg.f === 'pantul') return teksPantul(cfg);
   const r = String(cfg.r).replace('.', ',');
   const pola = cfg.p === 'bos' ? (cfg.ctx === 'against' ? 'CHoCH: candle tutup menembus gelombang melawan struktur' : 'BOS: candle tutup menembus puncak/lembah gelombang')
     : cfg.p === 'tolak' ? 'Tolak: ekor menembus puncak/lembah gelombang lalu tutup kembali'
@@ -836,18 +916,20 @@ async function optimalkan(An) {
 }
 /** ringkasan uji maju (out-of-sample): inilah angka yang ditampilkan, bukan hasil kombinasi terbaik di data yang sama */
 function ringkasHasil(An, u, hari) {
-  const k = skala(An.sym), o = u.oos, n = o.length, M = new Map();
-  let w = 0, gp = 0, gl = 0, s = 0, tp = 0, sl = 0, bTp = 0, eq = 0, pk = 0, dd = 0;
+  const k = skala(An.sym), o = u.oos, n = o.length, M = new Map(), Hh = new Map();
+  let w = 0, gp = 0, gl = 0, s = 0, tp = 0, sl = 0, bTp = 0, eq = 0, pk = 0, dd = 0, run = 0, beruntun = 0;
   for (const x of o) {
-    if (x.pnl > 0) { w++; gp += x.pnl; } else gl -= x.pnl;
+    if (x.pnl > 0) { w++; gp += x.pnl; run = 0; } else { gl -= x.pnl; run++; beruntun = Math.max(beruntun, run); }
+    const hk = Math.floor((x.t0 + WIB) / HARI); Hh.set(hk, (Hh.get(hk) || 0) + x.pnl);
     s += x.pnl; if (x.cara === 1) { tp++; bTp += x.bTp; } else if (x.cara === 2) sl++;
     eq += x.pnl; pk = Math.max(pk, eq); dd = Math.max(dd, pk - eq);
     const mg = Math.floor((x.t0 + 3 * HARI) / (7 * HARI)); M.set(mg, (M.get(mg) || 0) + x.pnl);
   }
-  const mg = [...M.values()], pf = gl ? gp / gl : (gp ? 9 : 0);
+  const mg = [...M.values()], hh = [...Hh.values()], pf = gl ? gp / gl : (gp ? 9 : 0);
   return { aktif: !!An.cfg, cfg: An.cfg, teks: An.cfg ? teksCfg(An.cfg) : '', pola: An.cfg ? namaPola(An.cfg) : '',
     terbukti: n >= N_TERBUKTI && pf >= PF_TERBUKTI, n, wr: n ? w / n : 0, pf, e: n ? s / n * k : 0, tot: s * k, dd: dd * k,
     tpRate: n ? tp / n : 0, slRate: n ? sl / n : 0, eta: tp ? bTp / tp : 0, perHari: n / Math.max(1, u.hariOos),
+    menang: w ? gp / w * k : 0, kalah: n - w ? gl / (n - w) * k : 0, beruntun, hariUntung: [hh.filter(v => v > 0).length, hh.length],
     hariOos: u.hariOos, L: u.L, minggu: [mg.filter(v => v > 0).length, mg.length], diuji: u.diuji, ganti: u.ganti, hari,
     gaya: SET.gaya, gayaDipakai: u.gayaDipakai, spread: SET.spread[An.sym], t: Date.now() };
 }
@@ -918,7 +1000,52 @@ function hitungKebiasaan(sym) {
     if (S.h[i] > dh) dh = S.h[i]; if (S.l[i] < dl) dl = S.l[i];
   }
   const hari = D.map((x, d) => ({ d, rng: x.n ? x.s / x.n * k : 0, n: x.n }));
-  return { jam, hari, rataBar: rata * k, dari: S.t[i0], sampai: S.akhir };
+  return { jam, hari, rataBar: rata * k, dari: S.t[i0], sampai: S.akhir, menit: kebiasaanMenit(sym), panjang: kebiasaanPanjang(sym) };
+}
+/** menit-dalam-jam (candle 1m, hingga 60 hari): rentang rata-rata per menit relatif terhadap rata-rata semua menit.
+ *  Studi tick Exness Mei–Okt 2026: menit :00 & :30 paling ramai (rilis berita, pembukaan candle jam). */
+function kebiasaanMenit(sym) {
+  const S = DATA.get(INFO[sym].seri + '|1m'); if (!S || S.n < 3000) return null;
+  const M = new Float64Array(60), N = new Float64Array(60), k = skala(sym);
+  for (let i = Math.max(0, S.n - 60 * 1440); i < S.n - 1; i++) { const m = Math.floor(S.t[i] / MENIT) % 60; M[m] += S.h[i] - S.l[i]; N[m]++; }
+  const r = Array.from(M, (x, m) => N[m] ? x / N[m] : 0), rata = r.reduce((a, b) => a + b, 0) / 60 || 1;
+  return { rel: r.map(x => x / rata), rng: r.map(x => x * k), hari: (S.akhir - S.t[Math.max(0, S.n - 60 * 1440)]) / HARI };
+}
+// ---- candle harian panjang (Binance, sejak awal simbol) untuk kebiasaan hari / bulan / tahun
+const HARIAN = {};
+async function ambilHarian(sym) {
+  const kunci = 'harian|' + sym, lama = KV.get(kunci);
+  if (lama && lama.rows && lama.rows.length && Date.now() - lama.t < 12 * JAM) { HARIAN[sym] = lama.rows; return; }
+  const simbol = sym === 'BTCUSDT' ? 'BTCUSDT' : 'PAXGUSDT', rows = lama && lama.rows ? lama.rows.slice() : [];
+  let start = rows.length ? rows[rows.length - 1][0] : Date.parse(sym === 'BTCUSDT' ? '2017-08-17' : '2020-08-28');
+  try {
+    for (let k = 0; k < 6; k++) {
+      const r = await ambilJson(`${HOSTS[hostI]}/klines?symbol=${simbol}&interval=1d&limit=1000&startTime=${start}`, 12000);
+      for (const x of r) { const row = [+x[0], +x[1], +x[2], +x[3], +x[4]]; if (rows.length && rows[rows.length - 1][0] === row[0]) rows[rows.length - 1] = row; else if (!rows.length || row[0] > rows[rows.length - 1][0]) rows.push(row); }
+      if (r.length < 1000) break; start = +r[r.length - 1][0] + HARI;
+    }
+    kvSet(kunci, { t: Date.now(), rows }); HARIAN[sym] = rows;
+  } catch (e) { if (rows.length) HARIAN[sym] = rows; }
+}
+/** hari dalam seminggu, bulan dalam setahun, tahun — dari candle harian panjang (emas: hanya Senin–Jumat) */
+function kebiasaanPanjang(sym) {
+  const R = HARIAN[sym]; if (!R || R.length < 300) return null;
+  const rows = INFO[sym].emas ? R.filter(r => { const wd = new Date(r[0]).getUTCDay(); return wd >= 1 && wd <= 5; }) : R;
+  const HR = Array.from({ length: 7 }, () => ({ v: [], rng: 0, th: {} })), BL = new Map(), TH = new Map();
+  for (const r of rows) {
+    const d = new Date(r[0]), wd = d.getUTCDay(), y = d.getUTCFullYear(), m = d.getUTCMonth(), x = r[4] / r[1] - 1;
+    const h = HR[wd]; h.v.push(x); h.rng += (r[2] - r[3]) / r[1]; (h.th[y] = h.th[y] || []).push(x);
+    const kb = y * 12 + m; if (!BL.has(kb)) BL.set(kb, { y, m, o: r[1], c: r[4], n: 0 }); const b = BL.get(kb); b.c = r[4]; b.n++;
+    if (!TH.has(y)) TH.set(y, { y, o: r[1], c: r[4], n: 0, rng: 0 }); const t = TH.get(y); t.c = r[4]; t.n++; t.rng += (r[2] - r[3]) / r[1];
+  }
+  const ring = v => ({ n: v.length, rata: v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0, naik: v.length ? v.filter(x => x > 0).length / v.length : 0 });
+  const hari = HR.map((h, wd) => { const o = ring(h.v), ths = Object.values(h.th).filter(v => v.length > 20);
+    return { wd, ...o, rng: h.v.length ? h.rng / h.v.length : 0, thnPos: ths.filter(v => v.reduce((a, b) => a + b, 0) > 0).length, thn: ths.length }; });
+  const perBln = Array.from({ length: 12 }, () => []);
+  for (const b of BL.values()) if (b.n >= (INFO[sym].emas ? 15 : 20)) perBln[b.m].push(b.c / b.o - 1);
+  const bulan = perBln.map((v, m) => ({ m, ...ring(v) }));
+  const tahun = [...TH.values()].map(t => ({ y: t.y, ret: t.c / t.o - 1, rng: t.n ? t.rng / t.n : 0, n: t.n }));
+  return { hari, bulan, tahun, dari: rows[0][0], sampai: rows[rows.length - 1][0] };
 }
 
 // ------------------------------------------------------------------ posisi virtual (rekam sinyal live)
@@ -929,16 +1056,16 @@ function trJadi(An, x, sumber) {
     hasil: ['', 'TP', 'SL', 'WKT'][x.cara], pnl: x.pnl * k, sumber, kode: x.kd || '', ms: An.S.ms };
 }
 function bukaPosisi(An, i, st) {
-  const S = An.S, cfg = An.cfg, side = st.side, entry = S.c[i];
-  const sl = hitungSl(cfg, side, st.ph, st.pl, st.lv), risk = Math.abs(entry - sl);
-  const tp = hitungTp(cfg, side, entry, risk, st.lv);
-  if (!(risk > 0) || side * (tp - entry) <= biayaInternal(An.sym)) return;
-  An.aktif = { side, entry, sl, tp, t0: S.t[i], tE: S.t[i] + S.ms, ms: S.ms, lv: { wh: st.lv.wh, wl: st.lv.wl }, a: st.lv.a, k: skala(An.sym),
+  const S = An.S, cfg = An.cfg, side = st.side;
+  const rc = rencanaTrade(cfg, S, An.I, { i, side, ph: st.ph, pl: st.pl, lv: st.lv }, biayaInternal(An.sym));
+  if (!rc) return;
+  const { entry, sl, tp } = rc, maxb = maxbCfg(cfg, An.tf);
+  An.aktif = { side, entry, sl, tp, t0: S.t[i], tE: S.t[i] + S.ms, ms: S.ms, maxb, lv: { wh: st.lv.wh, wl: st.lv.wl }, a: st.lv.a, k: skala(An.sym),
     eD: hp(An.sym, entry), sD: hp(An.sym, sl), tD: hp(An.sym, tp),
     cfg: teksCfg(cfg), pola: namaPola(cfg), kode: kodePola(cfg) };
   kvSet('aktif|' + An.key, An.aktif);
   const P = An.aktif;
-  kirim({ op: 'sinyal', jenis: 'buka', sym: An.sym, tf: An.tf, side, entry: P.eD, sl: P.sD, tp: P.tD, t0: P.t0, tE: P.tE, ms: S.ms, maxb: MAXB[An.tf], pola: namaPola(cfg) });
+  kirim({ op: 'sinyal', jenis: 'buka', sym: An.sym, tf: An.tf, side, entry: P.eD, sl: P.sD, tp: P.tD, t0: P.t0, tE: P.tE, ms: S.ms, maxb, pola: namaPola(cfg) });
 }
 function tutupPosisi(An, keluar, cara, t1) {
   const P = An.aktif; if (!P) return;
@@ -950,7 +1077,7 @@ function tutupPosisi(An, keluar, cara, t1) {
   An.aktif = null;
   kvSet('jurnal|' + An.key, An.jurnal); kvSet('aktif|' + An.key, null);
   kirim({ op: 'sinyal', jenis: 'tutup', sym: An.sym, tf: An.tf, hasil: cara, pnl: x.pnl, side: x.side, entry: x.entry, keluar: x.keluar, sl: x.sl, tp: x.tp,
-    t0: x.t0, tE: P.tE, t1, ms: x.ms, maxb: MAXB[An.tf] });
+    t0: x.t0, tE: P.tE, t1, ms: x.ms, maxb: P.maxb || MAXB[An.tf] });
 }
 /** evaluasi candle tertutup i: keluar posisi lalu cari sinyal baru (logika sama persis dengan uji()) */
 function evaluasiBar(An, i, live) {
@@ -959,10 +1086,10 @@ function evaluasiBar(An, i, live) {
     if (P.side < 0 ? S.h[i] >= P.sl : S.l[i] <= P.sl) return tutupPosisi(An, P.side < 0 ? Math.max(P.sl, S.o[i]) : Math.min(P.sl, S.o[i]), 'SL', S.t[i] + S.ms);
     if (P.side < 0 ? S.l[i] <= P.tp : S.h[i] >= P.tp) return tutupPosisi(An, P.tp, 'TP', S.t[i] + S.ms);
     const nb = S.cari(S.t[i] + 1) - S.cari(P.tE);
-    if (nb >= MAXB[An.tf]) return tutupPosisi(An, S.c[i], 'WKT', S.t[i] + S.ms);
+    if (nb >= (P.maxb || MAXB[An.tf])) return tutupPosisi(An, S.c[i], 'WKT', S.t[i] + S.ms);
     return;
   }
-  if (!An.aktif && An.cfg && An.hasil && An.hasil.terbukti && live && i >= 220) {
+  if (!An.aktif && An.cfg && An.hasil && (An.hasil.terbukti || SET.paksa) && live && i >= 220) {
     const st = cekSetup(An.cfg, S, An.I, i);
     if (st && !st.tolak) bukaPosisi(An, i, st);
   }
@@ -1017,6 +1144,34 @@ function statusIkut(An) {
   if (out.gel && out.gel.t) out.gel.t = halus(S, out.gel.t, Ai.S.ms, out.gel.dir);
   return out;
 }
+/** status PANTUL TREN: hanya sisi tren 1 jam; daftar periksa Tren · Koreksi · Konfirmasi · Jam; rencana di level koreksi */
+function statusPantul(An, out, lv, p, q, cfg, H) {
+  const S = An.S, I = An.I, i = S.n - 1, j = Math.min(i, I.n - 1), P = I.P, a = I.A[j], t = lv.tj;
+  out.boleh = { jual: t < 0, beli: t > 0 }; out.arah = t;
+  const rinci = (side, entry) => {
+    const sl = entry - side * cfg.sl * a, tp = cfg.tp === 'ema' ? P.E20[j] : entry + side * cfg.tp * a;
+    return { side, entry: q(entry), sl: q(sl), tp: q(tp), rr: Math.abs(tp - entry) / (Math.abs(entry - sl) || 1), pTp: H && H.tpRate, eta: H && H.eta };
+  };
+  let level;   // harga koreksi yang memicu setup (perkiraan untuk RSI)
+  if (cfg.m === 'ema') level = P.E20[j] - t * cfg.v * a;
+  else if (cfg.m === 'don') { const hh = cfg.v === 20 ? P.H20[j] : P.H50[j], ll = cfg.v === 20 ? P.L20[j] : P.L50[j]; level = t > 0 ? ll + cfg.q * (hh - ll) : hh - cfg.q * (hh - ll); }
+  else level = P.E20[j] - t * 1.5 * a;
+  const kor = !!t && i < I.n && koreksiPantul(S, I, cfg, i, t), konf = !!t && konfirmPantul(S, cfg, i, t), jamOk = lolosJam(cfg, P.JM[j]);
+  const arahT = t > 0 ? 'beli' : 'jual';
+  out.pantul = { level: q(level), kira: cfg.m === 'rsi', m: cfg.m };
+  out.cek = { tren: { ok: !!t, teks: teksTren(t), tj: t },
+    lokasi: { ok: kor, label: 'Koreksi', teks: !t ? 'menunggu tren 1 jam jelas' : kor ? `koreksi tercapai (${cfg.m === 'rsi' ? 'RSI3 ' + fmtRsi(P.R3[j]) : 'zona ' + arahT})` : `menunggu harga ke ${cfg.m === 'rsi' ? '≈ ' : ''}${q(level).toFixed(2)}` },
+    candle: { ok: kor && konf, label: cfg.k ? 'Konfirmasi' : 'Tanpa konf.', teks: ['langsung saat koreksi tercapai', 'candle berbalik searah tren', 'tutup melewati high/low candle sebelumnya'][cfg.k] },
+    konteks: { ok: jamOk, label: cfg.jam === 'semua' ? 'Semua jam' : cfg.jam === 'asia' ? 'Sesi Asia' : 'Luar sesi AS', teks: TEKS_JAM[cfg.jam] || 'semua jam', perlu: cfg.jam !== 'semua' } };
+  if (!t) { out.keadaan = 'TUNGGU'; return out; }
+  if (kor && konf && jamOk) { out.keadaan = 'KANDIDAT'; out.rencana = rinci(t, p); return out; }
+  if (kor && konf) out.tolak = { pola: 'Pantul tren', alasan: 'di luar jam strategi (' + TEKS_JAM[cfg.jam] + ')' };
+  const d = t > 0 ? (p - level) / a : (level - p) / a;
+  out.keadaan = d <= 0.8 ? 'SIAGA' : 'TUNGGU';
+  out.siaga = rinci(t, level);
+  return out;
+}
+const fmtRsi = x => Math.round(x);
 function statusDetik(An) {
   if (An.ikut && An.sumber !== An) return statusIkut(An);
   An.segar();
@@ -1064,12 +1219,14 @@ function statusDetik(An) {
     out.aktif = { side: P.side, entry: P.eD != null ? P.eD : q(P.entry), sl: P.sD != null ? P.sD : q(P.sl), tp: P.tD != null ? P.tD : q(P.tp), t0: P.t0, tE: P.tE, ms: P.ms || S.ms, pl: pl * k,
       prog: Math.max(-1, Math.min(1, P.side * (p - P.entry) / (P.side * (P.tp - P.entry) || 1))),
       progSl: Math.max(0, Math.min(1, P.side * (P.entry - p) / Math.abs(P.entry - P.sl || 1))), cfg: P.cfg, pola: P.pola,
-      lewat: Math.floor((now - P.tE) / S.ms), maxb: MAXB[An.tf], pTp: H && H.tpRate, eta: H && H.eta };
+      lewat: Math.floor((now - P.tE) / S.ms), maxb: P.maxb || MAXB[An.tf], pTp: H && H.tpRate, eta: H && H.eta };
     return out;
   }
   if (!cfg) { out.keadaan = An.hasil ? 'NONAKTIF' : 'MEMUAT'; return out; }
-  out.aturan = { pola: namaPola(cfg), p: cfg.p, ctx: cfg.ctx, ktx: NAMA_KTX[cfg.ctx] };
-  if (!H || !H.terbukti) { out.keadaan = 'DITAHAN'; return out; }   // uji maju belum membuktikan untung → tidak ada sinyal
+  out.aturan = { pola: namaPola(cfg), p: cfg.f === 'pantul' ? 'pantul' : cfg.p, ctx: cfg.ctx, ktx: cfg.f === 'pantul' ? TEKS_JAM[cfg.jam] : NAMA_KTX[cfg.ctx] };
+  out.maxb = maxbCfg(cfg, An.tf);
+  if (!H || !H.terbukti) { if (!SET.paksa) { out.keadaan = 'DITAHAN'; return out; } out.ditahan = true; }   // uji maju belum membuktikan untung → tidak ada sinyal (kecuali dipaksa pengguna)
+  if (cfg.f === 'pantul') return statusPantul(An, out, lv, p, q, cfg, H);
   // sisi yang diizinkan aturan strategi
   const bolehJ = lolosKonteks(cfg.ctx, -1, lv), bolehB = lolosKonteks(cfg.ctx, 1, lv);
   out.boleh = { jual: bolehJ, beli: bolehB };
@@ -1263,6 +1420,7 @@ async function mulai() {
   if (mulaiJalan) return; mulaiJalan = true;
   await bukaDb();
   const r = KV.get('rasio'); if (r && r.k) RASIO = r;
+  for (const sym of SYMS) { const h = KV.get('harian|' + sym); if (h && h.rows) HARIAN[sym] = h.rows; }
   const kv = KV.get('kurs'); if (kv && kv.v) KURS = kv.v;
   if (await cekExness()) pakaiExness();
   for (const seri of SERI) for (const tf of TFS) DATA.set(seri + '|' + tf, new Seri(seri, tf));
@@ -1296,6 +1454,9 @@ async function mulai() {
     await simpanSeri(S);
   }
   STATUS.unduh = null;
+  for (const sym of SYMS) { await ambilHarian(sym); KEB[sym] = hitungKebiasaan(sym) || KEB[sym]; }
+  kirimAnalisis(LIHAT.sym, LIHAT.tf);
+  setInterval(async () => { for (const sym of SYMS) await ambilHarian(sym); }, 12 * JAM);
   isiMundur();
 }
 /** rekam mundur pelan-pelan sampai batas maksimum (60 hari 1m, 365 hari 5m) */
@@ -1354,6 +1515,7 @@ function setel(s, ulang) {
   if (s.lot > 0) SET.lot = +s.lot;
   if (s.spread) for (const k of SYMS) if (s.spread[k] >= 0) SET.spread[k] = +s.spread[k];
   if (s.gaya && GAYA_WR[s.gaya] != null) SET.gaya = s.gaya;
+  if (s.paksa != null) SET.paksa = !!s.paksa;
   if (s.kal) for (const k of SYMS) KAL[k] = s.kal[k] && (s.kal[k].d != null || s.kal[k].k) ? s.kal[k] : null;
   if (!ulang || JSON.stringify(SET) === lama) return;
   clearTimeout(setelJalan);

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="id" data-web="156177ddeba1">
+<html lang="id" data-web="df67103c6b75">
 <head>
 <meta charset="utf-8">
 <script src="/amatu.js"></script>
@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
-<link rel="stylesheet" href="app.css?v=156177ddeba1">
+<link rel="stylesheet" href="app.css?v=df67103c6b75">
 </head>
 <body>
 <svg width="0" height="0" class="defs" aria-hidden="true">
@@ -54,13 +54,15 @@
 
     <section class="keb" id="keb">
       <div class="keb-h">
-        <b>Kebiasaan pasar</b><span class="muted" id="keb-sub">per jam WIB</span>
+        <b>Kebiasaan pasar</b>
+        <div class="seg sm" id="keb-skala"><button data-k="menit">Menit</button><button data-k="jam">Jam</button><button data-k="hari">Hari</button><button data-k="bulan">Bulan</button><button data-k="tahun">Tahun</button></div>
+        <span class="muted" id="keb-sub">per jam WIB</span>
         <span class="keb-now" id="keb-now"></span>
       </div>
       <div class="keb-body">
         <div class="keb-chart">
           <div class="keb-bars" id="keb-bars"></div>
-          <div class="keb-ax"><span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span></div>
+          <div class="keb-ax" id="keb-ax"><span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span></div>
         </div>
         <div class="keb-sesi" id="keb-sesi"></div>
       </div>
@@ -129,7 +131,7 @@
 
       <section class="card strategi" id="c-strategi">
         <header class="ch"><h2>Strategi</h2>
-          <div class="seg sm" id="gaya"><button data-g="winrate">Winrate</button><button data-g="seimbang">Seimbang</button><button data-g="rr">RR besar</button></div>
+          <div class="seg sm" id="gaya"><button data-g="winrate">Winrate 70%+</button><button data-g="seimbang">Seimbang</button><button data-g="rr">RR besar</button></div>
         </header>
         <p class="st-teks" id="st-teks">Menguji setup pada riwayat…</p>
         <div class="bukti hidden" id="st-bukti" data-tip="bukti"><b></b><span></span></div>
@@ -139,6 +141,7 @@
           <div data-tip="e"><span>Per trade</span><b id="st-e">–</b></div>
           <div data-tip="ph"><span>Sinyal/hari</span><b id="st-ph">–</b></div>
         </div>
+        <div class="st-mk" id="st-mk"></div>
         <div class="st-kurva" id="st-kurva" data-tip="kurva"></div>
         <div class="st-proj" id="st-proj"></div>
         <div class="st-foot"><span id="st-uji"></span><button class="link" id="st-ulang"><svg><use href="#i-segar"/></svg>Analisis ulang</button></div>
@@ -171,6 +174,7 @@
     <label class="fld"><span>Spread BTCUSDm <small>(USD, lihat selisih Buy−Sell di Exness)</small></span><input id="set-sp-btc" type="number" min="0" step="0.1" inputmode="decimal"></label>
     <label class="fld"><span>Spread XAUUSDm <small>(USD)</small></span><input id="set-sp-xau" type="number" min="0" step="0.01" inputmode="decimal"></label>
     <label class="fld cek"><input id="set-bunyi" type="checkbox"><span>Bunyi saat sinyal muncul / selesai</span></label>
+    <label class="fld cek"><input id="set-paksa" type="checkbox"><span>Buka sinyal walau uji maju belum terbukti <small>(risiko sendiri; mis. XAU saat data PAXG berbeda dari Exness)</small></span></label>
     <p class="note" id="set-info"></p>
     <p class="note">Spread dipakai sebagai biaya di setiap uji, jadi strategi dipilih ulang bila diubah. Hasil uji masa lalu bukan jaminan hasil berikutnya; ini alat bantu analisis, bukan saran investasi.</p>
     <div class="pop-foot"><button class="link danger" id="set-hapus">Hapus rekaman di perangkat ini</button><button class="btn" id="set-simpan">Simpan</button></div>
@@ -180,6 +184,6 @@
 <div class="tip hidden" id="tip"></div>
 
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=156177ddeba1"></script>
+<script src="app.js?v=df67103c6b75"></script>
 </body>
 </html>

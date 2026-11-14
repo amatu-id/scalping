@@ -7,7 +7,12 @@
   const KONTRAK = { BTCUSDT: 1, XAUUSDm: 100 };
   const TF_MENIT = { '1m': 1, '5m': 5 };
   const TF_MS = { '1m': 6e4, '5m': 3e5 };
-  const IKUT = { '1m': '5m' };   // TF yang memakai sinyal TF lain (sama dengan mesin.js): 1m = chart detail untuk sinyal 5m
+  const IKUT = { '1m': '5m' };
+  // cek silang riset 14 Nov 2026: pilihan harian situs (data Binance) dijalankan di harga Exness asli (tick resmi Mei–Okt 2026, 5m)
+  const RISET = {
+    BTCUSDT: { winrate: { wr: 0.724, pf: 1.39, n: 145, mg: '16/24', periode: 'Mei–Okt 2026' }, seimbang: { wr: 0.479, pf: 1.66, n: 117, mg: '14/25', periode: 'Mei–Okt 2026' } },
+    XAUUSDm: { winrate: { wr: 0.779, pf: 1.42, n: 136, mg: '18/25', periode: 'Mei–Okt 2026' }, seimbang: { wr: 0.356, pf: 1.07, n: 202, mg: '14/25', periode: 'Mei–Okt 2026' } },
+  };   // TF yang memakai sinyal TF lain (sama dengan mesin.js): 1m = chart detail untuk sinyal 5m
   const WIB = 7 * 3600e3;
   const C = { up: '#22c39a', dn: '#f2545b', am: '#f5b041', bl: '#5b8cff', mu: '#8790a1', line: '#1d2430' };
   const NAMA = { BTCUSDT: 'BTCUSDm', XAUUSDm: 'XAUUSDm' };   // nama simbol seperti di Exness
@@ -20,14 +25,17 @@
   const qs = new URLSearchParams(location.search);
   const P = {
     sym: qs.get('sym') || LS.get('sym', 'BTCUSDT'), tf: qs.get('tf') || LS.get('tf', '1m'),
-    gaya: LS.get('gaya', 'seimbang'), lot: +LS.get('lot', 0.01) || 0.01,
+    gaya: LS.get('gaya', 'winrate'), lot: +LS.get('lot', 0.01) || 0.01, keb: LS.get('keb', 'jam'), paksa: LS.get('paksa', false) === true,
     spread: Object.assign({ BTCUSDT: 6.4, XAUUSDm: 0.24 }, LS.get('spread', {})),
     kal: Object.assign({ BTCUSDT: null, XAUUSDm: null }, LS.get('kal', {})),   // kalibrasi harga ke Exness
     bunyi: LS.get('bunyi', true) !== false, rw: LS.get('rw', 'live'),
   };
   if (!SYMS.includes(P.sym)) P.sym = 'BTCUSDT';
   if (!TF_MENIT[P.tf]) P.tf = '1m';
-  if (!['winrate', 'seimbang', 'rr'].includes(P.gaya)) P.gaya = 'seimbang';
+  if (!['winrate', 'seimbang', 'rr'].includes(P.gaya)) P.gaya = 'winrate';
+  // v7 (14 Nov 2026): permintaan winrate > 70% → sekali pindah ke gaya "Winrate 70%+"; setelah itu pilihan pengguna dihormati
+  if (!LS.get('v7gaya', false)) { P.gaya = 'winrate'; LS.set('gaya', 'winrate'); LS.set('v7gaya', true); }
+  if (!['menit', 'jam', 'hari', 'bulan', 'tahun'].includes(P.keb)) P.keb = 'jam';
   let KURS = +LS.get('kurs', 18200) || 18200;
 
   // ---------------------------------------------------------------- format angka (Indonesia)
@@ -61,7 +69,7 @@
   const tokenPortal = () => { try { const s = window.AMATU && window.AMATU.sess && window.AMATU.sess(); return (s && s.t) || ''; } catch (e) { return ''; } };
   const EXNESS = { edge: (lokal && qs.get('exness')) || EDGE_EXN, token: (lokal && qs.get('xt')) || tokenPortal() };
   let FEED = { sumber: 'binance', exn: {} };
-  W.postMessage({ op: 'mulai', set: { lot: P.lot, spread: P.spread, gaya: P.gaya, kal: P.kal }, lihat: { sym: P.sym, tf: P.tf }, exness: EXNESS });
+  W.postMessage({ op: 'mulai', set: { lot: P.lot, spread: P.spread, gaya: P.gaya, kal: P.kal, paksa: P.paksa }, lihat: { sym: P.sym, tf: P.tf }, exness: EXNESS });
 
   // ---------------------------------------------------------------- chart
   const LW = window.LightweightCharts;
@@ -790,9 +798,9 @@
     const tj = c.tren ? c.tren.tj : 0, panah = tj > 0 ? ' ▲' : tj < 0 ? ' ▼' : ' –';
     ck('ck-tren', sisi ? (c.tren && c.tren.ok ? 'ok' : 'no') : (tj ? 'na' : 'no'), 'Tren 1j' + panah,
       `Wajib searah tren 1 jam (EMA50 vs EMA200 harga per jam). Saat ini ${c.tren ? c.tren.teks : 'tren belum dihitung'} → hanya ${tj > 0 ? 'BUY di lembah gelombang' : tj < 0 ? 'SELL di puncak gelombang' : 'tunggu tren jelas'}.`);
-    ck('ck-lok', !sisi ? 'na' : c.lokasi.ok ? 'ok' : 'no', 'Lokasi', sisi ? `Lokasi: ${c.lokasi.teks}.` : 'Belum ada sisi yang cocok dengan aturan strategi.');
-    ck('ck-pola', !sisi ? 'na' : c.candle.ok ? 'ok' : 'no', at.pola || 'Candle', `Pola yang dipakai strategi: ${c.candle.teks}.${polaKini}`);
-    const lblK = at.ctx === 'ema+' || at.ctx === 'ema-' ? 'Tren EMA' : at.ctx === 'with+' ? 'Struktur+EMA' : at.ctx === 'none' ? 'Konteks bebas' : 'Struktur';
+    ck('ck-lok', !sisi ? 'na' : c.lokasi.ok ? 'ok' : 'no', c.lokasi.label || 'Lokasi', sisi ? `${c.lokasi.label || 'Lokasi'}: ${c.lokasi.teks}.` : 'Belum ada sisi yang cocok dengan aturan strategi.');
+    ck('ck-pola', !sisi ? 'na' : c.candle.ok ? 'ok' : 'no', c.candle.label || at.pola || 'Candle', at.p === 'pantul' ? `Konfirmasi: ${c.candle.teks}.` : `Pola yang dipakai strategi: ${c.candle.teks}.${polaKini}`);
+    const lblK = c.konteks.label || (at.ctx === 'ema+' || at.ctx === 'ema-' ? 'Tren EMA' : at.ctx === 'with+' ? 'Struktur+EMA' : at.ctx === 'none' ? 'Konteks bebas' : 'Struktur');
     ck('ck-ktx', !c.konteks.perlu ? 'na' : !sisi ? 'no' : c.konteks.ok ? 'ok' : 'no', lblK, `Aturan: ${at.ktx || 'tanpa filter'}. Saat ini: ${c.konteks.teks}.`);
     const kand = s.keadaan === 'KANDIDAT';
     ck('ck-wkt', kand ? 'tunggu' : 'na', kand ? `Tutup ${Math.floor(s.sisa / 60)}:${dua(s.sisa % 60)}` : 'Tutup candle', 'Pola baru sah saat candle tutup — lihat jam pasir.');
@@ -815,8 +823,10 @@
       case 'DITAHAN': {
         const st = A.strategi || {}; cls += ' tahan'; bt = 'DITAHAN';
         judul = 'Sinyal ditahan — uji maju belum terbukti untung';
-        sub = st.n ? `Hasil uji maju ${st.hariOos} hari: ${st.n} trade, PF ${fx(st.pf, 2)}, ${frp(keRp(st.tot || 0, sym))} (lot ${nf(2).format(P.lot)}). Sinyal baru dibuka bila PF ≥ 1,05 dari ≥ 20 trade.`
+        sub = st.n ? `Hasil uji maju ${st.hariOos} hari: ${st.n} trade, WR ${fp(st.wr)}, PF ${fx(st.pf, 2)}, ${frp(keRp(st.tot || 0, sym))} (lot ${nf(2).format(P.lot)}). Sinyal baru dibuka bila PF ≥ 1,05 dari ≥ 20 trade.`
           : 'Riwayat masih direkam; uji maju butuh beberapa minggu data sebelum sinyal dibuka.';
+        const rs = RISET[sym] && RISET[sym][P.gaya];
+        if (FEED.sumber !== 'exness' && sym === 'XAUUSDm') sub += ` Data emas di sini = PAXG Binance, berbeda dari XAU Exness${rs ? `: pilihan yang sama di harga Exness asli (${rs.periode}) WR ${fp(rs.wr)}, PF ${fx(rs.pf, 2)}` : ''}. Aktifkan feed resmi Exness agar uji memakai harga Exness, atau buka sinyal lewat Setelan (risiko sendiri).`;
         break;
       }
       case 'POSISI': {
@@ -827,8 +837,8 @@
       }
       case 'KANDIDAT': {
         cls += s.arah < 0 ? ' k-sell' : ' k-buy'; bt = arahT(s.arah) + '?';
-        judul = at.p === 'bos' ? `Calon ${arahT(s.arah)} — ${at.pola}: tembus ${tempat(-s.arah)}` : `Calon ${arahT(s.arah)} — ${at.pola} di ${tempat(s.arah)}`;
-        sub = `Lokasi, pola candle, dan konteks sudah cocok. Sah bila candle tutup tetap seperti ini (${s.sisa} dtk lagi).`;
+        judul = at.p === 'pantul' ? `Calon ${arahT(s.arah)} — Pantul tren (koreksi searah tren 1 jam)` : at.p === 'bos' ? `Calon ${arahT(s.arah)} — ${at.pola}: tembus ${tempat(-s.arah)}` : `Calon ${arahT(s.arah)} — ${at.pola} di ${tempat(s.arah)}`;
+        sub = (at.p === 'pantul' ? `Tren 1 jam ${s.arah > 0 ? 'naik' : 'turun'}, harga sudah koreksi dan konfirmasi cocok.` : 'Lokasi, pola candle, dan konteks sudah cocok.') + ` Sah bila candle tutup tetap seperti ini (${s.sisa} dtk lagi).` + (s.ditahan ? ' Catatan: uji maju belum terbukti — dibuka karena setelan Anda.' : '');
         plan = s.rencana; break;
       }
       case 'TEMBUS':
@@ -840,6 +850,13 @@
         const sisi = s.arah, dekat = s.keadaan === 'SIAGA';
         if (!sisi) { judul = 'Harga di dalam gelombang'; sub = `Belum ada sisi yang cocok: tren 1 jam ${s.tren > 0 ? 'naik (hanya BUY)' : s.tren < 0 ? 'turun (hanya SELL)' : 'belum jelas'}${at.ktx ? `, aturan ${at.ktx}` : ''} — struktur ${strukturT(s.struktur)}, EMA ${s.struktur && s.struktur.ema > 0 ? 'naik' : 'turun'}.`; break; }
         if (dekat) { cls += ' siaga'; bt = 'SIAGA'; }
+        if (at.p === 'pantul') {
+          const lvl = s.pantul && s.pantul.level, jp = ok(lvl) ? Math.abs(s.harga - lvl) : NaN, cek = s.cek || {};
+          judul = dekat ? `Dekat zona koreksi — siap ${arahT(sisi)} (Pantul tren)` : `Tren 1 jam ${sisi > 0 ? 'naik' : 'turun'} · tunggu koreksi untuk ${arahT(sisi)}`;
+          sub = `${arahT(sisi)} bila harga ${sisi > 0 ? 'turun' : 'naik'} ke ${s.pantul && s.pantul.kira ? '≈ ' : ''}${fh(lvl)} (jarak ${fd(jp, jp >= 100 ? 0 : 2)})${at.ktx ? ', ' + at.ktx : ''}, lalu ${cek.candle ? cek.candle.teks : 'konfirmasi'}. TP kecil & SL lebar: sering menang, tapi satu kalah ≈ 2–3 kali satu menang.`;
+          if (s.tolak) sub = `${s.tolak.pola} terbentuk, tapi ${s.tolak.alasan}. ` + sub;
+          plan = s.siaga; redup = true; break;
+        }
         const jarak = at.p === 'bos' ? (sisi > 0 ? s.jarak.atas : s.jarak.bawah) : (sisi < 0 ? s.jarak.atas : s.jarak.bawah);
         const jT = fd(Math.abs(jarak), Math.abs(jarak) >= 100 ? 0 : 2);
         if (at.p === 'bos') {
@@ -909,11 +926,16 @@
     setC(bukti, 'bukti ' + (st.terbukti ? 'ok' : 'tahan'));
     setT(bukti.querySelector('b'), st.terbukti ? 'Terbukti' : 'Ditahan');
     setT(bukti.querySelector('span'), st.n ? `uji maju ${fx(st.hariOos, 0)} hari · ${st.n} trade · ${st.minggu ? st.minggu[0] + '/' + st.minggu[1] : '–'} minggu untung` : 'uji maju menunggu riwayat lebih panjang');
+    // risiko winrate tinggi harus terlihat: rata-rata menang vs kalah, rugi beruntun, hari untung; + cek silang harga Exness asli
+    const rs = RISET[sym] && RISET[sym][st.gayaDipakai || st.gaya];
+    $('st-mk').innerHTML = st.n ? `Menang rata-rata <b class="up">${frp(keRp(st.menang || 0, sym))}</b> · kalah <b class="dn">${frp(-keRp(st.kalah || 0, sym))}</b> · rugi beruntun maks <b>${st.beruntun || 0}</b>` +
+      (st.hariUntung ? ` · hari untung <b>${st.hariUntung[0]}/${st.hariUntung[1]}</b>` : '') +
+      (FEED.sumber !== 'exness' && rs ? `<br><span class="muted">Cek silang di harga Exness asli (${rs.periode}): WR <b>${fp(rs.wr)}</b> · PF <b>${fx(rs.pf, 2)}</b> · ${rs.n} trade · minggu untung ${rs.mg}</span>` : '') : '';
     if (!st.n) {
       ['st-wr', 'st-pf', 'st-e', 'st-ph'].forEach(id => setT($(id), '–')); $('st-kurva').innerHTML = ''; setT($('st-proj'), '');
       setT($('st-uji'), `${fx(st.hari, 0)} hari riwayat · spread ${fd(st.spread, st.spread >= 1 ? 1 : 2)}`); return;
     }
-    setT($('st-wr'), fp(st.wr)); setT($('st-pf'), fx(st.pf, 2));
+    setT($('st-wr'), fp(st.wr)); setT($('st-pf'), fx(st.pf, 2)); $('st-wr').className = st.wr >= 0.7 ? 'up' : '';
     setT($('st-e'), frpRingkas(keRp(st.e, sym))); setT($('st-ph'), fx(st.perHari, 1));
     $('st-e').className = st.e >= 0 ? 'up' : 'dn'; $('st-pf').className = st.pf >= 1 ? '' : 'dn';
     const proj = keRp(st.e * st.perHari, sym);
@@ -980,30 +1002,67 @@
   $('rw-list').addEventListener('click', e => { const r = e.target.closest('.rw'); if (r && r.dataset.t0) putarUlang(+r.dataset.t0); });
 
   const SESI = [{ nama: 'Asia', a: 6, b: 14 }, { nama: 'Eropa', a: 14, b: 19 }, { nama: 'Amerika', a: 19, b: 24 }, { nama: 'Dini hari', a: 0, b: 6 }];
+  // ---------------------------------------------------------------- kebiasaan pasar multi-skala: menit · jam · hari · bulan · tahun
+  const NH = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'], NHP = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const NB = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const pct = (x, d = 2) => ok(x) ? (x >= 0 ? '+' : '−') + nf(d).format(Math.abs(x * 100)) + '%' : '–';
+  const thn = t => new Date(t).getUTCFullYear();
+  /** isi skala aktif: batang (tinggi 0..1, kelas warna), label sumbu, teks keterangan; KB.data = sumber keterangan tiap batang */
+  function dataKeb(K, sk) {
+    const kini = new Date(Date.now() + WIB);
+    if (sk === 'menit') {
+      const M = K.menit; if (!M) return { kosong: 'menunggu riwayat 1m…' };
+      const mx = Math.max(...M.rel), mk = kini.getUTCMinutes(), top = M.rel.map((x, m) => [x, m]).sort((p, q) => q[0] - p[0]).slice(0, 3);
+      return { batang: M.rel.map((x, m) => ({ h: x / mx, c: (x >= 1.25 ? 'ramai' : '') + (m === mk ? ' kini' : ''), i: m })), ax: ['00', '10', '20', '30', '40', '50'].map(x => ':' + x),
+        sub: `rentang rata-rata per menit dalam jam · ${Math.round(M.hari)} hari`,
+        now: `Menit :${dua(mk)} ${fx(M.rel[mk], 2)}× rata-rata · paling ramai ${top.map(([x, m]) => ':' + dua(m) + ' ' + fx(x, 2) + '×').join(', ')} (rilis berita & candle jam baru)` };
+    }
+    if (sk === 'jam') {
+      const jamKini = kini.getUTCHours(), mx = Math.max(...K.jam.map(j => j.vol), 0.01), j = K.jam[jamKini];
+      const ks = SESI.findIndex(x => jamKini >= x.a && jamKini < x.b), sisaM = (SESI[ks].b * 60) - (kini.getUTCHours() * 60 + kini.getUTCMinutes());
+      return { batang: K.jam.map((x, h) => ({ h: x.vol / mx, c: (x.naik >= 0.535 ? 'naik' : x.naik <= 0.465 ? 'turun' : '') + (h === jamKini ? ' kini' : ''), i: h })),
+        ax: ['00', '03', '06', '09', '12', '15', '18', '21'], sub: `rata-rata gerak per jam WIB · ${Math.round((K.sampai - K.dari) / 864e5)} hari terakhir`,
+        now: `Jam ${dua(jamKini)}.00: gerak ±${fd(j.gerak, j.gerak >= 100 ? 0 : 2)} · rentang ${fd(j.rng, j.rng >= 100 ? 0 : 2)} · naik ${fp(j.naik)} · aktivitas ${fx(j.vol, 1)}× · sesi ${SESI[ks].nama} sisa ${Math.floor(sisaM / 60) ? Math.floor(sisaM / 60) + ' j ' : ''}${sisaM % 60} m` };
+    }
+    const Pj = K.panjang; if (!Pj) return { kosong: 'menunggu riwayat harian panjang…' };
+    const periode = `${thn(Pj.dari)}–${thn(Pj.sampai)}`;
+    if (sk === 'hari') {
+      const urut = [1, 2, 3, 4, 5, 6, 0].filter(d => Pj.hari[d].n), mx = Math.max(...urut.map(d => Pj.hari[d].rng)), dk = kini.getUTCDay(), h = Pj.hari[dk];
+      return { batang: urut.map(d => ({ h: Pj.hari[d].rng / mx, c: (Pj.hari[d].rata > 0 ? 'naik' : 'turun') + (d === dk ? ' kini' : ''), i: d })), ax: urut.map(d => NH[d]),
+        sub: `rentang & arah rata-rata per hari · ${periode}`,
+        now: h && h.n ? `${NHP[dk]}: rata ${pct(h.rata)} · naik ${fp(h.naik)} · positif ${h.thnPos}/${h.thn} tahun · rentang ${pct(h.rng).replace('+', '')}` : `${NHP[dk]}: pasar tutup` };
+    }
+    if (sk === 'bulan') {
+      const mx = Math.max(...Pj.bulan.map(b => Math.abs(b.rata)), 1e-9), bk = kini.getUTCMonth(), b = Pj.bulan[bk];
+      return { batang: Pj.bulan.map((x, m) => ({ h: Math.abs(x.rata) / mx, c: (x.rata > 0 ? 'naik' : 'turun') + (m === bk ? ' kini' : ''), i: m })), ax: NB,
+        sub: `return rata-rata per bulan · ${periode}`, now: `${NB[bk]}: rata ${pct(b.rata, 1)} · naik ${Math.round(b.naik * b.n)}/${b.n} tahun · sampel kecil, jangan dijadikan patokan tunggal` };
+    }
+    const T = Pj.tahun, mx = Math.max(...T.map(t => Math.abs(t.ret)), 1e-9), yk = kini.getUTCFullYear(), t = T.find(x => x.y === yk);
+    return { batang: T.map((x, i) => ({ h: Math.abs(x.ret) / mx, c: (x.ret > 0 ? 'naik' : 'turun') + (x.y === yk ? ' kini' : ''), i })), ax: T.map(x => "'" + String(x.y).slice(2)),
+      sub: `return per tahun · ${periode}`, now: t ? `${yk} sejauh ini ${pct(t.ret, 1)} · rentang harian rata-rata ${pct(t.rng).replace('+', '')}` : '' };
+  }
   function renderKeb() {
-    const K = A.kebiasaan, bars = $('keb-bars'), sym = P.sym;
+    const K = A.kebiasaan, bars = $('keb-bars'), sym = P.sym, sk = P.keb;
+    document.querySelectorAll('#keb-skala button').forEach(b => b.classList.toggle('on', b.dataset.k === sk));
     if (!K) { bars.innerHTML = ''; setT($('keb-now'), 'menunggu riwayat 5m…'); return; }
-    const jamKini = new Date(Date.now() + WIB).getUTCHours();
-    const mx = Math.max(...K.jam.map(j => j.vol), 0.01);
-    if (bars.children.length !== 24) bars.innerHTML = '<i></i>'.repeat(24);
-    K.jam.forEach((j, h) => {
-      const el = bars.children[h];
-      el.style.height = (6 + 94 * j.vol / mx).toFixed(1) + '%';
-      el.className = (j.naik >= 0.535 ? 'naik' : j.naik <= 0.465 ? 'turun' : '') + (h === jamKini ? ' kini' : '');
-      el.dataset.h = h;
-    });
-    const hariData = Math.round((K.sampai - K.dari) / 864e5);
-    setT($('keb-sub'), `rata-rata gerak per jam WIB · ${hariData} hari terakhir`);
-    const j = K.jam[jamKini];
-    const S = A.sesi, ks = SESI.findIndex(x => jamKini >= x.a && jamKini < x.b);
-    const kini = new Date(Date.now() + WIB), sisaM = (SESI[ks].b * 60) - (kini.getUTCHours() * 60 + kini.getUTCMinutes());
-    setT($('keb-now'), `Jam ${dua(jamKini)}.00: gerak ±${fd(j.gerak, j.gerak >= 100 ? 0 : 2)} · rentang ${fd(j.rng, j.rng >= 100 ? 0 : 2)} · naik ${fp(j.naik)} · aktivitas ${fx(j.vol, 1)}× · sesi ${SESI[ks].nama} sisa ${Math.floor(sisaM / 60) ? Math.floor(sisaM / 60) + ' j ' : ''}${sisaM % 60} m`);
-    $('keb-sesi').innerHTML = '<div class="sh">Strategi per sesi (uji)</div>' + SESI.map((x, i) => {
+    const D = dataKeb(K, sk);
+    if (D.kosong) { bars.innerHTML = ''; $('keb-ax').innerHTML = ''; setT($('keb-now'), D.kosong); setT($('keb-sub'), ''); }
+    else {
+      if (bars.children.length !== D.batang.length) bars.innerHTML = '<i></i>'.repeat(D.batang.length);
+      bars.style.gridTemplateColumns = `repeat(${D.batang.length}, 1fr)`; bars.dataset.skala = sk;
+      D.batang.forEach((x, k) => { const el = bars.children[k]; el.style.height = (6 + 94 * Math.max(0, Math.min(1, x.h))).toFixed(1) + '%'; el.className = x.c; el.dataset.i = x.i; });
+      const ax = $('keb-ax'), axH = D.ax.map(t => `<span>${t}</span>`).join('');
+      if (ax.innerHTML !== axH) { ax.innerHTML = axH; ax.style.gridTemplateColumns = `repeat(${D.ax.length}, 1fr)`; }
+      setT($('keb-sub'), D.sub); setT($('keb-now'), D.now);
+    }
+    const jamKini = new Date(Date.now() + WIB).getUTCHours(), S = A.sesi, ks = SESI.findIndex(x => jamKini >= x.a && jamKini < x.b);
+    $('keb-sesi').innerHTML = '<div class="sh">Strategi per sesi (uji maju)</div>' + SESI.map((x, i) => {
       const st = S && S[i];
       const isi = st && st.n ? `<b class="${st.e >= 0 ? 'up' : 'dn'}">${frp(keRp(st.e, sym))}</b><span class="w">WR ${fp(st.wr)} · ${st.n}×</span>` : '<b>–</b><span class="w"></span>';
       return `<div class="s${i === ks ? ' kini' : ''}" data-tip="sesi" data-i="${i}"><span class="n" data-tip="sesi" data-i="${i}">${x.nama} ${dua(x.a)}–${dua(x.b % 24)}</span>${isi}</div>`;
     }).join('');
   }
+  $('keb-skala').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; P.keb = b.dataset.k; LS.set('keb', P.keb); renderKeb(); });
   setInterval(() => { if (A.kebiasaan) renderKeb(); }, 60000);
 
   // ---------------------------------------------------------------- sinyal: bunyi + toast
@@ -1164,7 +1223,7 @@
   });
 
   function bukaSetelan() {
-    $('set-lot').value = P.lot; $('set-sp-btc').value = P.spread.BTCUSDT; $('set-sp-xau').value = P.spread.XAUUSDm; $('set-bunyi').checked = P.bunyi;
+    $('set-lot').value = P.lot; $('set-sp-btc').value = P.spread.BTCUSDT; $('set-sp-xau').value = P.spread.XAUUSDm; $('set-bunyi').checked = P.bunyi; $('set-paksa').checked = P.paksa;
     $('set-info').textContent = FEED.sumber === 'exness'
       ? `Sumber: feed resmi Exness (Exness Trader API lewat server AMATU, hanya membaca harga). Riwayat candle & tick Bid langsung dari Exness, disimpan di browser ini. Kurs USD/IDR ${nf(0).format(KURS)}.`
       : `Sumber: Binance (BTC = BTCUSDT ÷ USDCUSDT agar dalam USD seperti Exness; XAU = PAXGUSDT × rasio emas). Semua harga ditampilkan sebagai Bid seperti di Exness. Tanpa kalibrasi, selisih ke Exness bisa beberapa dolar. Kurs USD/IDR ${nf(0).format(KURS)}.`;
@@ -1178,9 +1237,9 @@
     const lot = +$('set-lot').value, sb = +$('set-sp-btc').value, sx = +$('set-sp-xau').value;
     if (lot > 0) P.lot = Math.round(lot * 100) / 100;
     if (sb >= 0) P.spread.BTCUSDT = sb; if (sx >= 0) P.spread.XAUUSDm = sx;
-    P.bunyi = $('set-bunyi').checked; aturBunyi();
+    P.bunyi = $('set-bunyi').checked; aturBunyi(); P.paksa = $('set-paksa').checked; LS.set('paksa', P.paksa);
     LS.set('lot', P.lot); LS.set('spread', P.spread); LS.set('bunyi', P.bunyi);
-    W.postMessage({ op: 'setel', set: { lot: P.lot, spread: P.spread } });
+    W.postMessage({ op: 'setel', set: { lot: P.lot, spread: P.spread, paksa: P.paksa } });
     pop.classList.add('hidden'); renderStrategi(); renderRiwayat(); renderKeb();
   });
   $('set-hapus').addEventListener('click', () => {
@@ -1220,11 +1279,19 @@
     ph: () => 'Rata-rata jumlah sinyal per hari di uji maju (hari tanpa setup lolos ikut dihitung).',
     kurva: () => `Hasil kumulatif semua trade uji maju (setelah spread): <b>${$('st-kurva').dataset.akhir || '–'}</b>. Naik stabil = konsisten; turun tajam = periode rugi.`,
     sesi: el => { const st = A.sesi && A.sesi[+el.dataset.i]; return st && st.n ? `Strategi aktif pada sesi ini di uji riwayat: ${st.n} trade, untung ${fp(st.wr)}, rata-rata ${frp(keRp(st.e, P.sym))}/trade.` : 'Belum ada trade uji di sesi ini.'; },
-    jam: el => { const j = A.kebiasaan && A.kebiasaan.jam[+el.dataset.h]; return j ? `<b>${dua(j.h)}.00–${dua((j.h + 1) % 24)}.00 WIB</b><br>Gerak bersih rata-rata ±${fd(j.gerak, j.gerak >= 100 ? 0 : 2)}, rentang ${fd(j.rng, j.rng >= 100 ? 0 : 2)}<br>Ditutup naik ${fp(j.naik)} · aktivitas ${fx(j.vol, 2)}× rata-rata · ${j.n} jam data` : ''; },
+    jam: el => {
+      const K = A.kebiasaan, i = +el.dataset.i, sk = P.keb; if (!K) return '';
+      if (sk === 'jam') { const j = K.jam[i]; return j ? `<b>${dua(j.h)}.00–${dua((j.h + 1) % 24)}.00 WIB</b><br>Gerak bersih rata-rata ±${fd(j.gerak, j.gerak >= 100 ? 0 : 2)}, rentang ${fd(j.rng, j.rng >= 100 ? 0 : 2)}<br>Ditutup naik ${fp(j.naik)} · aktivitas ${fx(j.vol, 2)}× rata-rata · ${j.n} jam data` : ''; }
+      if (sk === 'menit') { const M = K.menit; return M ? `<b>Menit :${dua(i)}</b> tiap jam<br>Rentang rata-rata ${fd(M.rng[i], M.rng[i] >= 100 ? 0 : 2)} · ${fx(M.rel[i], 2)}× rata-rata menit lain` : ''; }
+      const Pj = K.panjang; if (!Pj) return '';
+      if (sk === 'hari') { const h = Pj.hari[i]; return h ? `<b>${NHP[i]}</b> (${h.n} hari data)<br>Rata-rata ${pct(h.rata)} · ditutup naik ${fp(h.naik)}<br>Positif di ${h.thnPos} dari ${h.thn} tahun · rentang ${pct(h.rng).replace('+', '')}` : ''; }
+      if (sk === 'bulan') { const b = Pj.bulan[i]; return b ? `<b>${NB[i]}</b> · ${b.n} tahun data<br>Rata-rata ${pct(b.rata, 1)} · naik ${Math.round(b.naik * b.n)}/${b.n} tahun` : ''; }
+      const t = Pj.tahun[i]; return t ? `<b>${t.y}</b><br>Return ${pct(t.ret, 1)} · rentang harian rata-rata ${pct(t.rng).replace('+', '')}` : '';
+    },
   };
   const tipEl = $('tip');
   function tampilTip(el, x, y) {
-    const k = el.dataset.tip || (el.parentElement && el.parentElement.id === 'keb-bars' ? 'jam' : null);
+    const k = el.dataset.tip || (el.parentElement && el.parentElement.id === 'keb-bars' ? 'jam' : null);   // batang kebiasaan: skala aktif
     const f = k && TIP[k]; if (!f) return;
     const h = f(el); if (!h) return;
     tipEl.innerHTML = h; tipEl.classList.remove('hidden');

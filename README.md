@@ -2,11 +2,14 @@
 
 https://amatu-id.github.io/scalping/ — scalping BTCUSDT & XAUUSDm (bagian dari Portal AMATU).
 
-- **Chart 1m / 5m** dengan **Batas Atas & Batas Bawah** otomatis (range tertinggi/terendah W candle tertutup terakhir), zona jual/beli, riwayat batas, penanda sinyal.
-- **Rekam riwayat**: candle 1m (hingga 60 hari) dan 5m (hingga 365 hari) diunduh dari Binance lalu terus direkam di IndexedDB browser (`amatu-scalping`).
-- **Strategi PANTUL**: ekor candle menyentuh batas lalu candle tutup kembali di dalam range → arah balik. Setiap simbol × TF menguji 864 kombinasi (lebar range, SL, TP, filter tren, lebar minimum) pada 4 periode riwayat dengan biaya spread; hanya setup yang untung di ≥3 dari 4 periode yang dipakai. Gaya: Winrate (WR ≥ 52%), Seimbang (WR ≥ 38%), RR besar.
-- **Tiap detik**: harga (WebSocket Binance), status (tunggu / siaga / calon / posisi / tembus), rencana entry–TP–SL, peluang sentuh batas, P/L posisi virtual, hitung mundur candle. Sinyal live & hasilnya direkam di jurnal.
-- **Kebiasaan pasar**: gerak rata-rata per jam WIB, arah dominan, hasil strategi per sesi.
+- **Chart 1m / 5m** dengan **gelombang** otomatis: zigzag puncak/lembah (dikonfirmasi saat harga berbalik ≥ r × ATR) berlabel struktur **HH / HL / LH / LL**.
+- **Batas Atas & Batas Bawah** = puncak dan lembah gelombang terakhir, lengkap dengan zona sentuh (±0,3 ATR) tempat pola candle dihitung.
+- **Entry dari gelombang + candle + price action**: pola tolak (ekor menembus lalu tutup kembali), pin bar, engulfing, high wave + konfirmasi, BOS / CHoCH; difilter konteks struktur (searah / melawan / datar) dan tren EMA50/200.
+- **Dipilih dari riwayat**: tiap simbol × TF menguji 1.512 kombinasi (ukuran gelombang, pola, konteks, SL, TP) di 4 periode riwayat dengan biaya spread; hanya yang untung di ≥3 dari 4 periode yang dipakai. Gaya: Winrate (WR ≥ 52%), Seimbang (WR ≥ 38%), RR besar.
+- **Jam pasir**: sisa waktu candle (pola baru sah saat candle tutup) dan, saat posisi berjalan, sisa batas waktu scalping (30 candle 1m / 24 candle 5m) dengan tanda rata-rata waktu kena TP.
+- **Tiap detik**: harga (WebSocket Binance), daftar periksa Lokasi · Pola candle · Konteks · Tutup candle, status (tunggu / siaga / calon / posisi / tembus), rencana entry–TP–SL dalam harga & Rupiah, peluang sentuh zona, P/L posisi virtual. Sinyal live & hasilnya direkam di jurnal.
+- **Rekam riwayat**: candle 1m (hingga 60 hari) dan 5m (hingga 365 hari) di IndexedDB browser (`amatu-scalping`), terus bertambah.
+- **Kebiasaan pasar**: gerak rata-rata per jam WIB, arah dominan, hasil strategi per sesi, sisa waktu sesi.
 
 Data: Binance spot publik (`data-api.binance.vision`, `data-stream.binance.vision`). XAUUSDm = PAXGUSDT × rasio harga spot emas (gold-api.com); candle di luar jam pasar emas dibuang. Semua hitungan berjalan di browser (Web Worker `mesin.js`), tanpa server.
 

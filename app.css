@@ -71,9 +71,43 @@ input { font: inherit; color: inherit; }
 .legend .t { color: var(--tx); font-weight: 600; }
 .legend .tr { padding: 0 6px; border-radius: 5px; }
 .legend .tr.w { background: var(--upa); color: var(--up); } .legend .tr.l { background: var(--dna); color: var(--dn); }
-.hitung { position: absolute; right: 74px; top: 8px; z-index: 3; display: flex; gap: 6px; align-items: baseline; padding: 4px 9px; border-radius: 7px; background: rgba(16, 21, 29, .85); border: 1px solid var(--line); font-size: 11px; color: var(--mu); }
+.hitung { position: absolute; right: 74px; top: 8px; z-index: 3; display: flex; gap: 5px; align-items: center; padding: 4px 9px; border-radius: 7px; background: rgba(16, 21, 29, .85); border: 1px solid var(--line); font-size: 11px; color: var(--mu); }
+.hitung svg { width: 13px; height: 13px; fill: none; stroke: var(--am); stroke-width: 1.8; stroke-linecap: round; }
 .hitung b { color: var(--tx); font-size: 12.5px; font-weight: 600; min-width: 30px; text-align: right; }
 .hitung.dekat b { color: var(--am); }
+
+/* jam pasir */
+.jp { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; width: 58px; margin-left: auto; cursor: default; }
+.jp svg { width: 30px; height: 48px; overflow: visible; }
+.jp svg.balik { animation: jpBalik .6s cubic-bezier(.4, 0, .2, 1); }
+@keyframes jpBalik { from { transform: rotate(-180deg); } to { transform: rotate(0); } }
+.jp-kaca { fill: rgba(148, 163, 184, .07); stroke: #3a4458; stroke-width: 1.4; stroke-linejoin: round; }
+.jp-tutup { fill: #4a5568; }
+.jp-pasir { fill: var(--jp, #d6a94a); transition: y .9s linear, height .9s linear; }
+.jp-alir { stroke: var(--jp, #d6a94a); stroke-width: 1.4; stroke-dasharray: 2 3; animation: jpAlir .6s linear infinite; }
+@keyframes jpAlir { to { stroke-dashoffset: -5; } }
+.jp-tanda { stroke: #e6e9ef; stroke-width: 1.2; stroke-dasharray: 2 2; }
+.jp b { font-size: 12.5px; font-weight: 700; color: var(--tx); line-height: 1.1; }
+.jp small { font-size: 9.5px; color: var(--mu); white-space: nowrap; }
+.jp.k-sell { --jp: var(--dn); } .jp.k-buy { --jp: var(--up); }
+.jp.k-sell b { color: var(--dn); } .jp.k-buy b { color: var(--up); }
+.jp.posisi { --jp: var(--up); } .jp.telat { --jp: var(--am); } .jp.kritis { --jp: var(--dn); }
+.jp.kritis b { color: var(--dn); } .jp.telat b { color: var(--am); }
+.jp.diam { --jp: #4a5568; opacity: .7; }
+
+/* daftar periksa price action */
+.s-cek { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.ck { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px 0 6px; border-radius: 11px; font-size: 11px; font-weight: 600; background: var(--card2); color: var(--mu); border: 1px solid transparent; white-space: nowrap; cursor: default; }
+.ck i { width: 12px; height: 12px; border-radius: 50%; display: grid; place-items: center; background: #2a3344; flex: none; }
+.ck i::after { content: ''; width: 6px; height: 1.6px; background: var(--fa); border-radius: 1px; }
+.ck.ok { color: #c9f2e6; background: var(--upa); border-color: rgba(34, 195, 154, .35); }
+.ck.ok i { background: var(--up); }
+.ck.ok i::after { width: 6px; height: 3px; background: none; border: solid #062a20; border-width: 0 0 1.6px 1.6px; transform: rotate(-45deg) translate(1px, -1px); border-radius: 0; }
+.ck.no i::after { width: 6px; height: 1.6px; background: var(--mu); }
+.ck.tunggu { color: var(--am); background: var(--ama); border-color: rgba(245, 176, 65, .35); }
+.ck.tunggu i { background: var(--am); }
+.ck.tunggu i::after { width: 4px; height: 4px; border-radius: 50%; background: #3a2a05; }
+.ck.na { opacity: .55; }
 .muat { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; gap: 10px; background: rgba(10, 13, 18, .72); color: var(--tx2); font-size: 13px; transition: opacity .3s; }
 .muat.pergi { opacity: 0; pointer-events: none; }
 .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--am); animation: putar .8s linear infinite; }

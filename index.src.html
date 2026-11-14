@@ -5,7 +5,7 @@
 <script src="/amatu.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Scalping · BTCUSDT &amp; XAUUSDm</title>
-<meta name="description" content="Scalping BTCUSDT &amp; XAUUSDm: chart 1m/5m dengan batas atas & bawah otomatis, strategi pantul yang dipilih dari uji riwayat, sinyal & peluang diperbarui tiap detik, rekaman kebiasaan pasar.">
+<meta name="description" content="Scalping BTCUSDT &amp; XAUUSDm: chart 1m/5m dengan batas atas & bawah dari puncak/lembah gelombang, pola candle + price action yang dipilih dari uji riwayat, jam pasir, sinyal & peluang diperbarui tiap detik, rekaman kebiasaan pasar.">
 <meta name="theme-color" content="#0a0d12">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%230f141c%22/%3E%3Cpath d=%22M5 6h14%22 stroke=%22%23f2545b%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M5 18h14%22 stroke=%22%2322c39a%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M12 8v8%22 stroke=%22%23f5b041%22 stroke-width=%221.6%22 stroke-linecap=%22round%22/%3E%3Crect x=%229.6%22 y=%2210%22 width=%224.8%22 height=%224.6%22 rx=%221%22 fill=%22%23f5b041%22/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,7 +46,7 @@
     <section class="chart-box">
       <div id="chart"></div>
       <div class="legend" id="legend"></div>
-      <div class="hitung" id="hitung" data-tip="hitung"><span>tutup</span><b id="hitung-v">–</b></div>
+      <div class="hitung" id="hitung" data-tip="hitung"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 4 6.5 4 9s-4 4-4 9M17 3c0 5-4 6.5-4 9s4 4 4 9"/></svg><b id="hitung-v">–</b></div>
       <div class="muat" id="muat"><i class="spin"></i><span id="muat-t">Memuat riwayat pasar…</span></div>
       <div class="info-tutup hidden" id="tutup"></div>
     </section>
@@ -71,10 +71,32 @@
 
     <aside class="kanan" id="kanan">
       <section class="card sinyal" id="c-sinyal">
-        <header class="ch"><h2>Sinyal <span id="s-tf"></span></h2><span class="chip" id="s-sisa"></span></header>
+        <header class="ch"><h2>Sinyal <span id="s-tf"></span></h2><span class="chip" id="s-pola" data-tip="pola"></span></header>
         <div class="s-main">
           <div class="s-badge" id="s-badge">…</div>
           <div class="s-desc"><b id="s-judul">Menyiapkan data</b><small id="s-sub"></small></div>
+          <div class="jp" id="jp" data-tip="jp">
+            <svg viewBox="0 0 40 64" aria-hidden="true" id="jp-svg">
+              <defs>
+                <clipPath id="jp-ka"><path d="M8.5 7h23c0 10-7.6 16.5-10.2 25h-2.6C16.1 23.5 8.5 17 8.5 7z"/></clipPath>
+                <clipPath id="jp-kb"><path d="M8.5 57h23c0-10-7.6-16.5-10.2-25h-2.6C16.1 40.5 8.5 47 8.5 57z"/></clipPath>
+              </defs>
+              <path class="jp-kaca" d="M8.5 7h23c0 10-7.6 16.5-10.2 25 2.6 8.5 10.2 15 10.2 25h-23c0-10 7.6-16.5 10.2-25C16.1 23.5 8.5 17 8.5 7z"/>
+              <rect id="jp-a" class="jp-pasir" x="0" y="7" width="40" height="25" clip-path="url(#jp-ka)"/>
+              <rect id="jp-b" class="jp-pasir" x="0" y="57" width="40" height="0" clip-path="url(#jp-kb)"/>
+              <line id="jp-alir" class="jp-alir" x1="20" y1="31" x2="20" y2="56"/>
+              <line id="jp-tanda" class="jp-tanda" x1="10" x2="30" y1="45" y2="45" visibility="hidden"/>
+              <rect class="jp-tutup" x="5" y="3" width="30" height="4" rx="2"/>
+              <rect class="jp-tutup" x="5" y="57" width="30" height="4" rx="2"/>
+            </svg>
+            <b id="jp-w">–</b><small id="jp-k">candle</small>
+          </div>
+        </div>
+        <div class="s-cek" id="s-cek">
+          <span class="ck" id="ck-lok" data-tip="cek"><i></i><span>Lokasi</span></span>
+          <span class="ck" id="ck-pola" data-tip="cek"><i></i><span>Candle</span></span>
+          <span class="ck" id="ck-ktx" data-tip="cek"><i></i><span>Struktur</span></span>
+          <span class="ck" id="ck-wkt" data-tip="cek"><i></i><span>Tutup candle</span></span>
         </div>
         <div class="s-lv" id="s-lv">
           <div class="lv en"><span>Entry</span><b id="s-entry">–</b><small id="s-entry2"></small></div>
@@ -87,17 +109,17 @@
       </section>
 
       <section class="card batas" id="c-batas">
-        <header class="ch"><h2>Batas range</h2><span class="muted" id="b-w"></span></header>
+        <header class="ch"><h2>Batas gelombang</h2><span class="muted" id="b-w" data-tip="gelombang"></span></header>
         <div class="b-body">
           <div class="b-gauge"><i class="za"></i><i class="zb"></i><i class="mid"></i><i class="mk" id="b-mark"></i></div>
           <div class="b-rows">
-            <div class="b-row a"><span>Batas Atas</span><b id="b-atas">–</b><small id="b-atas-d"></small></div>
+            <div class="b-row a"><span id="b-atas-l">Batas Atas · puncak</span><b id="b-atas">–</b><small id="b-atas-d"></small></div>
             <div class="b-row p"><span>Harga</span><b id="b-harga">–</b><small id="b-pos"></small></div>
-            <div class="b-row b"><span>Batas Bawah</span><b id="b-bawah">–</b><small id="b-bawah-d"></small></div>
+            <div class="b-row b"><span id="b-bawah-l">Batas Bawah · lembah</span><b id="b-bawah">–</b><small id="b-bawah-d"></small></div>
           </div>
         </div>
         <div class="b-stats">
-          <div data-tip="lebar"><span>Lebar</span><b id="b-lebar">–</b></div>
+          <div data-tip="struktur"><span>Struktur</span><b id="b-str">–</b></div>
           <div data-tip="peluang"><span id="b-pel-h">Peluang sentuh</span><b id="b-pel">–</b></div>
           <div data-tip="pantul"><span>Pantul di batas</span><b id="b-pantul">–</b></div>
         </div>

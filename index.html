@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="id" data-web="fa5ddd929d65">
+<head>
+<meta charset="utf-8">
+<script src="/amatu.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scalping · BTCUSDT &amp; XAUUSDm</title>
+<meta name="description" content="Scalping BTCUSDT &amp; XAUUSDm: chart 1m/5m dengan batas atas & bawah otomatis, strategi pantul yang dipilih dari uji riwayat, sinyal & peluang diperbarui tiap detik, rekaman kebiasaan pasar.">
+<meta name="theme-color" content="#0a0d12">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Crect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%230f141c%22/%3E%3Cpath d=%22M5 6h14%22 stroke=%22%23f2545b%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M5 18h14%22 stroke=%22%2322c39a%22 stroke-width=%221.8%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M12 8v8%22 stroke=%22%23f5b041%22 stroke-width=%221.6%22 stroke-linecap=%22round%22/%3E%3Crect x=%229.6%22 y=%2210%22 width=%224.8%22 height=%224.6%22 rx=%221%22 fill=%22%23f5b041%22/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="app.css?v=fa5ddd929d65">
+</head>
+<body>
+<svg width="0" height="0" class="defs" aria-hidden="true">
+  <symbol id="i-gir" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-bunyi" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+  <symbol id="i-bisu" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></symbol>
+  <symbol id="i-segar" viewBox="0 0 24 24"><path d="M20.5 4.5v5h-5"/><path d="M19.6 14.6A8 8 0 1 1 18.3 6.9l2.2 2.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand" title="Amatu Scalping">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16" class="la"/><path d="M4 18.5h16" class="lb"/><path d="M12 7.5v9" class="lc"/><rect x="9.6" y="9.6" width="4.8" height="4.8" rx="1" class="lr"/></svg>
+      <b>Scalping</b>
+    </div>
+    <nav class="pairs" id="pairs" aria-label="Pasangan">
+      <button class="pair" data-sym="BTCUSDT"><span class="pn">BTC<small>USDT</small></span><span class="pp" data-px>–</span><span class="pc" data-chg></span><i class="pb" data-badge></i></button>
+      <button class="pair" data-sym="XAUUSDm"><span class="pn">XAU<small>USDm</small></span><span class="pp" data-px>–</span><span class="pc" data-chg></span><i class="pb" data-badge></i></button>
+    </nav>
+    <div class="seg" id="tf" role="tablist" aria-label="Timeframe">
+      <button data-tf="1m">1m</button><button data-tf="5m">5m</button>
+    </div>
+    <div class="grow"></div>
+    <div class="baru hidden" id="baru"><button id="btn-baru">Versi baru · muat ulang</button></div>
+    <div class="live" id="live" data-tip="live"><i class="dot"></i><span class="jam" id="jam">--.--.--</span><small>WIB</small></div>
+    <button class="ic" id="btn-bunyi" aria-label="Bunyi sinyal"><svg><use href="#i-bunyi"/></svg></button>
+    <button class="ic" id="btn-setelan" aria-label="Setelan"><svg><use href="#i-gir"/></svg></button>
+  </header>
+
+  <main class="main" id="main" data-tab="sinyal">
+    <section class="chart-box">
+      <div id="chart"></div>
+      <div class="legend" id="legend"></div>
+      <div class="hitung" id="hitung" data-tip="hitung"><span>tutup</span><b id="hitung-v">–</b></div>
+      <div class="muat" id="muat"><i class="spin"></i><span id="muat-t">Memuat riwayat pasar…</span></div>
+      <div class="info-tutup hidden" id="tutup"></div>
+    </section>
+
+    <section class="keb" id="keb">
+      <div class="keb-h">
+        <b>Kebiasaan pasar</b><span class="muted" id="keb-sub">per jam WIB</span>
+        <span class="keb-now" id="keb-now"></span>
+      </div>
+      <div class="keb-body">
+        <div class="keb-chart">
+          <div class="keb-bars" id="keb-bars"></div>
+          <div class="keb-ax"><span>00</span><span>03</span><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span></div>
+        </div>
+        <div class="keb-sesi" id="keb-sesi"></div>
+      </div>
+    </section>
+
+    <nav class="tabs" id="tabs">
+      <button data-tab="sinyal">Sinyal</button><button data-tab="batas">Batas</button><button data-tab="strategi">Strategi</button><button data-tab="riwayat">Riwayat</button><button data-tab="keb">Kebiasaan</button>
+    </nav>
+
+    <aside class="kanan" id="kanan">
+      <section class="card sinyal" id="c-sinyal">
+        <header class="ch"><h2>Sinyal <span id="s-tf"></span></h2><span class="chip" id="s-sisa"></span></header>
+        <div class="s-main">
+          <div class="s-badge" id="s-badge">…</div>
+          <div class="s-desc"><b id="s-judul">Menyiapkan data</b><small id="s-sub"></small></div>
+        </div>
+        <div class="s-lv" id="s-lv">
+          <div class="lv en"><span>Entry</span><b id="s-entry">–</b><small id="s-entry2"></small></div>
+          <div class="lv tp"><span>TP</span><b id="s-tp">–</b><small id="s-tp2"></small></div>
+          <div class="lv sl"><span>SL</span><b id="s-sl">–</b><small id="s-sl2"></small></div>
+        </div>
+        <div class="s-meta" id="s-meta"></div>
+        <div class="s-prog hidden" id="s-prog"><i class="ps"></i><i class="pt"></i><i class="pm" id="s-mark"></i></div>
+        <div class="s-pl hidden" id="s-pl"></div>
+      </section>
+
+      <section class="card batas" id="c-batas">
+        <header class="ch"><h2>Batas range</h2><span class="muted" id="b-w"></span></header>
+        <div class="b-body">
+          <div class="b-gauge"><i class="za"></i><i class="zb"></i><i class="mid"></i><i class="mk" id="b-mark"></i></div>
+          <div class="b-rows">
+            <div class="b-row a"><span>Batas Atas</span><b id="b-atas">–</b><small id="b-atas-d"></small></div>
+            <div class="b-row p"><span>Harga</span><b id="b-harga">–</b><small id="b-pos"></small></div>
+            <div class="b-row b"><span>Batas Bawah</span><b id="b-bawah">–</b><small id="b-bawah-d"></small></div>
+          </div>
+        </div>
+        <div class="b-stats">
+          <div data-tip="lebar"><span>Lebar</span><b id="b-lebar">–</b></div>
+          <div data-tip="peluang"><span id="b-pel-h">Peluang sentuh</span><b id="b-pel">–</b></div>
+          <div data-tip="pantul"><span>Pantul di batas</span><b id="b-pantul">–</b></div>
+        </div>
+      </section>
+
+      <section class="card strategi" id="c-strategi">
+        <header class="ch"><h2>Strategi</h2>
+          <div class="seg sm" id="gaya"><button data-g="winrate">Winrate</button><button data-g="seimbang">Seimbang</button><button data-g="rr">RR besar</button></div>
+        </header>
+        <p class="st-teks" id="st-teks">Menguji setup pada riwayat…</p>
+        <div class="st-grid">
+          <div data-tip="wr"><span>Winrate</span><b id="st-wr">–</b></div>
+          <div data-tip="pf"><span>Profit F.</span><b id="st-pf">–</b></div>
+          <div data-tip="e"><span>Per trade</span><b id="st-e">–</b></div>
+          <div data-tip="ph"><span>Sinyal/hari</span><b id="st-ph">–</b></div>
+        </div>
+        <div class="st-kurva" id="st-kurva" data-tip="kurva"></div>
+        <div class="st-proj" id="st-proj"></div>
+        <div class="st-foot"><span id="st-uji"></span><button class="link" id="st-ulang"><svg><use href="#i-segar"/></svg>Analisis ulang</button></div>
+      </section>
+
+      <section class="card riwayat" id="c-riwayat">
+        <header class="ch"><h2>Riwayat sinyal</h2>
+          <div class="seg sm" id="rw-src"><button data-r="live">Live</button><button data-r="uji">Uji</button></div>
+        </header>
+        <div class="rw-sum" id="rw-sum"></div>
+        <div class="rw-list" id="rw-list"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<div class="pop hidden" id="setelan" role="dialog" aria-label="Setelan">
+  <div class="pop-card">
+    <header><b>Setelan</b><button class="ic" id="set-tutup" aria-label="Tutup"><svg><use href="#i-x"/></svg></button></header>
+    <label class="fld"><span>Lot <small>(untuk hitungan Rp)</small></span><input id="set-lot" type="number" min="0.01" step="0.01" inputmode="decimal"></label>
+    <label class="fld"><span>Spread BTCUSDm <small>(USD)</small></span><input id="set-sp-btc" type="number" min="0" step="0.1" inputmode="decimal"></label>
+    <label class="fld"><span>Spread XAUUSDm <small>(USD)</small></span><input id="set-sp-xau" type="number" min="0" step="0.01" inputmode="decimal"></label>
+    <label class="fld cek"><input id="set-bunyi" type="checkbox"><span>Bunyi saat sinyal muncul / selesai</span></label>
+    <p class="note" id="set-info"></p>
+    <p class="note">Spread dipakai sebagai biaya di setiap uji, jadi strategi dipilih ulang bila diubah. Hasil uji masa lalu bukan jaminan hasil berikutnya; ini alat bantu analisis, bukan saran investasi.</p>
+    <div class="pop-foot"><button class="link danger" id="set-hapus">Hapus rekaman di perangkat ini</button><button class="btn" id="set-simpan">Simpan</button></div>
+  </div>
+</div>
+<div class="toast hidden" id="toast"></div>
+<div class="tip hidden" id="tip"></div>
+
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="app.js?v=fa5ddd929d65"></script>
+</body>
+</html>
